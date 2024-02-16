@@ -30,7 +30,6 @@
     "deploy-instances": "forge script script/19_deployInstances.s.sol --rpc-url $RPC_URL --private-key $ACCOUNT_PRIVATE_KEY --broadcast --verify -vvvv"
   },
   "dependencies": {
-    "@openzeppelin/contracts": "^4.7.3",
     "dotenv": "^8.2.0"
   }
 }
