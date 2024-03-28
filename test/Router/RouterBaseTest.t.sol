@@ -66,7 +66,7 @@ contract RouterBaseTest is Test {
     address public other = 0x0000000000000000000000000000000000011111; // Do *NOT* use anything already in Constants.sol as it will not behave as expected
     uint256 public fork;
     uint256 public constant FAUCET_AMOUNT = 10e18; // initial amount of underlying & IBT to give to the user
-    string GOERLI_RPC_URL = vm.envString("GOERLI_RPC_URL");
+    string SEPOLIA_RPC_URL = vm.envString("SEPOLIA_RPC_URL");
     uint256 public TOKENIZATION_FEE = 1e15;
     uint256 public YIELD_FEE = 0;
     uint256 public PT_FLASH_LOAN_FEE = 0;
@@ -85,9 +85,9 @@ contract RouterBaseTest is Test {
      * for testing. It is called before each test.
      */
     function setUp() public virtual {
-        fork = vm.createFork(GOERLI_RPC_URL);
+        fork = vm.createFork(SEPOLIA_RPC_URL);
         vm.selectFork(fork);
-        curveAddressProvider = address(0x44Ba140128cae03A13A7cD5F3Da32b5Cd73c1c7a);
+        curveAddressProvider = 0xEa003958e186cc7342C337da470Dc1B865796B94;
         // default account for deploying scripts contracts. refer to line 35 of
         // https://github.com/foundry-rs/foundry/blob/master/evm/src/lib.rs for more details
         scriptAdmin = 0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38;
@@ -158,7 +158,13 @@ contract RouterBaseTest is Test {
 
         // deploy factory
         FactoryScript factoryScript = new FactoryScript();
-        factory = Factory(factoryScript.deployForTest(address(registry), address(accessManager)));
+        factory = Factory(
+            factoryScript.deployForTest(
+                address(registry),
+                curveAddressProvider,
+                address(accessManager)
+            )
+        );
         vm.prank(scriptAdmin);
         accessManager.grantRole(Roles.ADMIN_ROLE, address(factory), 0);
         vm.prank(scriptAdmin);
@@ -195,8 +201,8 @@ contract RouterBaseTest is Test {
             address(factory),
             address(ibt),
             principalTokenAddr,
-            address(curveAddressProvider),
             curvePoolDeploymentData,
+            0,
             0
         );
         curvePool = ICurvePool(curvePoolAddr);

@@ -17,6 +17,7 @@ contract DeployInstancesScript is Script {
     address private ibt;
     uint256 private duration;
     uint256 private initialLiquidityInIBT;
+    uint256 private minPTShares;
 
     // addresses returned in tests
     address private factory;
@@ -31,6 +32,7 @@ contract DeployInstancesScript is Script {
         address _ibt;
         uint256 _duration;
         uint256 _initialLiquidityInIBT;
+        uint256 _minPTShares;
     }
 
     // struct returned as output
@@ -78,6 +80,13 @@ contract DeployInstancesScript is Script {
                 revert(string.concat(envVar, " is not set in .env file"));
             }
             initialLiquidityInIBT = vm.envUint(envVar);
+
+            // get minimum allowed shares from deposit in PT from .env
+            envVar = string.concat("MIN_PT_SHARES_", deploymentNetwork);
+            if (bytes(vm.envString(envVar)).length == 0) {
+                revert(string.concat(envVar, " is not set in .env file"));
+            }
+            minPTShares = vm.envUint(envVar);
         }
 
         IFactory.CurvePoolParams memory curvePoolParams;
@@ -194,11 +203,13 @@ contract DeployInstancesScript is Script {
         // console.log("CurvePoolParams", curvePoolParams);
         console.log("duration: ", duration);
         console.log("ibt: ", ibt);
+        IERC20(ibt).approve(factory, initialLiquidityInIBT);
         (pt, curvePool) = IFactory(factory).deployAll(
             ibt,
             duration,
             curvePoolParams,
-            initialLiquidityInIBT
+            initialLiquidityInIBT,
+            minPTShares
         );
         console.log("PrincipalToken deployed at", pt);
         console.log("YT deployed at", PrincipalToken(pt).getYT());
@@ -214,11 +225,13 @@ contract DeployInstancesScript is Script {
         ibt = inputData._ibt;
         duration = inputData._duration;
         initialLiquidityInIBT = inputData._initialLiquidityInIBT;
+        minPTShares = inputData._minPTShares;
         run();
         forTest = false;
         ibt = address(0);
         duration = 0;
         initialLiquidityInIBT = 0;
+        minPTShares = 0;
         _returnData._factory = factory;
         _returnData._pt = pt;
         _returnData._curvePool = curvePool;

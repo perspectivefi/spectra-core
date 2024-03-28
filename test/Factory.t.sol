@@ -16,10 +16,12 @@ import "../script/06_deployFactory.s.sol";
 import "../script/07_deployPrincipalToken.s.sol";
 import "../script/08_deployCurvePool.s.sol";
 import "../src/libraries/Roles.sol";
+import "../src/libraries/RayMath.sol";
 import "openzeppelin-contracts/proxy/beacon/UpgradeableBeacon.sol";
 
 contract ContractFactory is Test {
     using Math for uint256;
+    using RayMath for uint256;
 
     struct CurvePoolDeploymentData {
         address[2] coins;
@@ -50,6 +52,7 @@ contract ContractFactory is Test {
         uint256 ibtBalanceAfter1;
         uint256 ibtBalanceAfter2;
         uint256 initialLiquidityInIBT;
+        uint256 minPTShares;
         uint256 ibtBalanceInPTFromInitPrice;
         uint256 ptBalanceAdded;
         uint256 ibtBalanceAdded;
@@ -78,7 +81,8 @@ contract ContractFactory is Test {
     uint256 public TOKENIZATION_FEE = 1e15;
     uint256 public YIELD_FEE = 0;
     uint256 public PT_FLASH_LOAN_FEE = 0;
-    string GOERLI_RPC_URL = vm.envString("GOERLI_RPC_URL");
+    uint256 constant FEE_DIVISOR = 1e18;
+    string SEPOLIA_RPC_URL = vm.envString("SEPOLIA_RPC_URL");
     uint256 fork;
     YieldToken public yt;
     UpgradeableBeacon public principalTokenBeacon;
@@ -95,10 +99,10 @@ contract ContractFactory is Test {
      * @dev This function is called before each test.
      */
     function setUp() public {
-        fork = vm.createFork(GOERLI_RPC_URL);
+        fork = vm.createFork(SEPOLIA_RPC_URL);
         vm.selectFork(fork);
-        curveAddressProvider = address(0x44Ba140128cae03A13A7cD5F3Da32b5Cd73c1c7a);
-        curveFactoryAddress = address(0xAd86AA4a359fA82e449F4486beD9Db1253DcE4Db);
+        curveAddressProvider = 0xEa003958e186cc7342C337da470Dc1B865796B94;
+        curveFactoryAddress = 0x664A272346dF98638BDDA12775A65a102Ae1C6E6;
         admin = address(this); // also set as principalTokenAdmin.
         // default account for deploying scripts contracts. refer to line 35 of
         // https://github.com/foundry-rs/foundry/blob/master/evm/src/lib.rs for more details
@@ -153,10 +157,30 @@ contract ContractFactory is Test {
         );
     }
 
+    function testDeployFactoryFailWhenRegistryIsZero() public {
+        // Factory
+        bytes memory revertData = abi.encodeWithSelector(bytes4(keccak256("AddressError()")));
+        vm.expectRevert(revertData);
+        new Factory(address(0), curveAddressProvider);
+    }
+
+    function testDeployFactoryFailWhenCurveAddressIsZero() public {
+        // Factory
+        bytes memory revertData = abi.encodeWithSelector(bytes4(keccak256("AddressError()")));
+        vm.expectRevert(revertData);
+        new Factory(address(registry), address(0));
+    }
+
     function testDeployPrincipalToken() public {
         // Factory
         FactoryScript factoryScript = new FactoryScript();
-        factory = Factory(factoryScript.deployForTest(address(registry), address(accessManager)));
+        factory = Factory(
+            factoryScript.deployForTest(
+                address(registry),
+                curveAddressProvider,
+                address(accessManager)
+            )
+        );
         vm.prank(scriptAdmin);
         accessManager.grantRole(Roles.ADMIN_ROLE, address(factory), 0);
         vm.prank(scriptAdmin);
@@ -192,7 +216,13 @@ contract ContractFactory is Test {
                 address(accessManager)
             )
         );
-        factory = Factory(factoryScript.deployForTest(address(registry2), address(accessManager)));
+        factory = Factory(
+            factoryScript.deployForTest(
+                address(registry2),
+                curveAddressProvider,
+                address(accessManager)
+            )
+        );
         vm.prank(scriptAdmin);
         accessManager.grantRole(Roles.ADMIN_ROLE, address(factory), 0);
         vm.prank(scriptAdmin);
@@ -202,57 +232,10 @@ contract ContractFactory is Test {
         factory.deployPT(address(ibt), DURATION);
     }
 
-    function testSetRegistryFailWhenUnauthorizedCaller() public {
-        // Factory
-        FactoryScript factoryScript = new FactoryScript();
-        factory = Factory(factoryScript.deployForTest(address(registry), address(accessManager)));
-        bytes memory revertData = abi.encodeWithSelector(
-            bytes4(keccak256("AccessManagedUnauthorized(address)")),
-            MOCK_ADDR_1
-        );
-        vm.expectRevert(revertData);
-        vm.prank(MOCK_ADDR_1);
-        factory.setRegistry(address(registry));
-    }
-
-    function testSetRegistryFailWhenRegistryIsZero() public {
-        // Factory
-        FactoryScript factoryScript = new FactoryScript();
-        factory = Factory(factoryScript.deployForTest(address(registry), address(accessManager)));
-        bytes memory revertData = abi.encodeWithSelector(bytes4(keccak256("AddressError()")));
-        vm.expectRevert(revertData);
-        vm.prank(scriptAdmin);
-        factory.setRegistry(address(0));
-    }
-
-    function testSetCurveAddressProviderFailWhenCurveAddressIsZero() public {
-        // Factory
-        FactoryScript factoryScript = new FactoryScript();
-        factory = Factory(factoryScript.deployForTest(address(registry), address(accessManager)));
-        bytes memory revertData = abi.encodeWithSelector(bytes4(keccak256("AddressError()")));
-        vm.expectRevert(revertData);
-        vm.prank(scriptAdmin);
-        factory.setCurveAddressProvider(address(0));
-    }
-
-    function testSetCurveAddressProviderFailWhenNotCurve() public {
-        // Factory
-        FactoryScript factoryScript = new FactoryScript();
-        factory = Factory(factoryScript.deployForTest(address(registry), address(accessManager)));
-        // We need to get a contract account (CA) to get a valid fallback for call tx
-        MockIBT mockIBT = new MockIBT();
-        bytes memory revertData = abi.encodeWithSelector(
-            bytes4(keccak256("FailedToFetchCurveFactoryAddress()"))
-        );
-        vm.expectRevert(revertData);
-        vm.prank(scriptAdmin);
-        factory.setCurveAddressProvider(address(mockIBT));
-    }
-
     /*
      * The test checks that the curve factory address is set
-     * correctly upon setting the curve address provider.
-     * The addresses are the one of mock contracts on Goerli.
+     * correctly during initialization, after setting the curve address provider during deployment
+     * The addresses are the one of mock contracts on Sepolia.
      * The test check only the logic of the setters and the encoding
      * of the function selector for curve get_address(uint256) function.
      * https://curve.readthedocs.io/registry-address-provider.html#AddressProvider.get_address
@@ -260,10 +243,17 @@ contract ContractFactory is Test {
     function testSetCurveAddressProviderFactoryFetch() public {
         // Factory
         FactoryScript factoryScript = new FactoryScript();
-        factory = Factory(factoryScript.deployForTest(address(registry), address(accessManager)));
+        factory = Factory(
+            factoryScript.deployForTest(
+                address(registry),
+                curveAddressProvider,
+                address(accessManager)
+            )
+        );
+        assertEq(curveFactoryAddress, factory.getCurveFactory());
         vm.prank(scriptAdmin);
-        factory.setCurveAddressProvider(curveAddressProvider);
-        assertEq(curveAddressProvider, factory.getCurveAddressProvider());
+        // Curve Factory should not change
+        factory.updateCurveFactory();
         assertEq(curveFactoryAddress, factory.getCurveFactory());
     }
 
@@ -281,37 +271,35 @@ contract ContractFactory is Test {
                 address(accessManager)
             )
         );
-        factory = Factory(factoryScript.deployForTest(address(registry2), address(accessManager)));
+        factory = Factory(
+            factoryScript.deployForTest(
+                address(registry2),
+                curveAddressProvider,
+                address(accessManager)
+            )
+        );
         vm.prank(scriptAdmin);
         bytes memory revertData = abi.encodeWithSelector(bytes4(keccak256("BeaconNotSet()")));
         vm.expectRevert(revertData);
         factory.deployPT(address(ibt), DURATION);
     }
 
-    function testFactoryDeployCurvePoolWithoutCurveFactoryFail() public {
-        // Factory
-        FactoryScript factoryScript = new FactoryScript();
-        factory = Factory(factoryScript.deployForTest(address(registry), address(accessManager)));
-        bytes memory revertData = abi.encodeWithSelector(bytes4(keccak256("CurveFactoryNotSet()")));
-        vm.expectRevert(revertData);
-        factory.deployCurvePool(
-            address(0),
-            IFactory.CurvePoolParams(0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
-            0
-        );
-    }
-
     function testFactoryDeployCurvePoolWithUnregisteredPTFail() public {
         // Factory
         FactoryScript factoryScript = new FactoryScript();
-        factory = Factory(factoryScript.deployForTest(address(registry), address(accessManager)));
-        vm.prank(scriptAdmin);
-        IFactory(factory).setCurveAddressProvider(address(curveAddressProvider));
+        factory = Factory(
+            factoryScript.deployForTest(
+                address(registry),
+                curveAddressProvider,
+                address(accessManager)
+            )
+        );
         bytes memory revertData = abi.encodeWithSelector(bytes4(keccak256("UnregisteredPT()")));
         vm.expectRevert(revertData);
         factory.deployCurvePool(
             address(0),
             IFactory.CurvePoolParams(0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+            0,
             0
         );
     }
@@ -319,10 +307,13 @@ contract ContractFactory is Test {
     function testFactoryDeployCurvePoolWithExpiredPTFail() public {
         // Factory
         FactoryScript factoryScript = new FactoryScript();
-        factory = Factory(factoryScript.deployForTest(address(registry), address(accessManager)));
-
-        vm.prank(scriptAdmin);
-        IFactory(factory).setCurveAddressProvider(address(curveAddressProvider));
+        factory = Factory(
+            factoryScript.deployForTest(
+                address(registry),
+                curveAddressProvider,
+                address(accessManager)
+            )
+        );
 
         vm.prank(scriptAdmin);
         accessManager.grantRole(Roles.ADMIN_ROLE, address(factory), 0);
@@ -345,13 +336,111 @@ contract ContractFactory is Test {
         factory.deployCurvePool(
             principalTokenAddress,
             IFactory.CurvePoolParams(0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+            0,
             0
         );
     }
 
+    function testFactoryDeployCurvePoolWithTooBigMinPTSharesFail() public {
+        TestData memory data;
+
+        // Factory
+        FactoryScript factoryScript = new FactoryScript();
+        factory = Factory(
+            factoryScript.deployForTest(
+                address(registry),
+                curveAddressProvider,
+                address(accessManager)
+            )
+        );
+
+        vm.startPrank(scriptAdmin);
+        accessManager.grantRole(Roles.ADMIN_ROLE, address(factory), 0);
+        accessManager.grantRole(Roles.REGISTRY_ROLE, address(factory), 0);
+        vm.stopPrank();
+
+        // deploy principalToken
+        PrincipalTokenScript principalTokenScript = new PrincipalTokenScript();
+        address principalTokenAddress = principalTokenScript.deployForTest(
+            address(factory),
+            address(ibt),
+            DURATION
+        );
+        principalToken = PrincipalToken(principalTokenAddress);
+
+        uint256 initialPrice = 8e17;
+
+        IFactory.CurvePoolParams memory curvePoolParams = IFactory.CurvePoolParams({
+            A: 200000000,
+            gamma: 100000000000000,
+            mid_fee: 5000000,
+            out_fee: 45000000,
+            allowed_extra_profit: 10000000000,
+            fee_gamma: 5000000000000000,
+            adjustment_step: 5500000000000,
+            admin_fee: 5000000000,
+            ma_half_time: 600,
+            initial_price: initialPrice
+        });
+
+        data.initialLiquidityInIBT = 100 * IBT_UNIT;
+
+        // compute minPTShares for given initialLiquidityInIBT
+        {
+            // fictive balances of pool to be deployed
+            uint256 poolPTBalance = 10 ** IERC20Metadata(ibt).decimals();
+            uint256 poolIBTBalance = poolPTBalance.mulDiv(initialPrice, CurvePoolUtil.CURVE_UNIT);
+            // compute the worth of the fictive IBT balance in the pool in PT
+            uint256 poolIBTBalanceInPT = principalToken.previewDepositIBT(poolIBTBalance);
+
+            // compute the portion of IBT to deposit in PT
+            uint256 ibtsToTokenize = data.initialLiquidityInIBT.mulDiv(
+                poolPTBalance,
+                poolIBTBalanceInPT + poolPTBalance
+            );
+
+            data.minPTShares = principalToken.previewDepositIBT(ibtsToTokenize);
+        }
+
+        // mint IBT to user
+        underlying.mint(MOCK_ADDR_1, ibt.convertToAssets(100 * IBT_UNIT));
+        vm.startPrank(MOCK_ADDR_1);
+        underlying.approve(address(ibt), ibt.convertToAssets(100 * IBT_UNIT));
+        ibt.mint(data.initialLiquidityInIBT, MOCK_ADDR_1);
+        ibt.approve(address(factory), data.initialLiquidityInIBT);
+
+        bytes memory revertData = abi.encodeWithSelector(
+            bytes4(keccak256("ERC5143SlippageProtectionFailed()"))
+        );
+        vm.expectRevert(revertData);
+        // deployment + addLiquidity should revert with minPTShares too big
+        IFactory(factory).deployCurvePool(
+            address(principalToken),
+            curvePoolParams,
+            data.initialLiquidityInIBT,
+            data.minPTShares + 1
+        );
+
+        // deployment + addLiquidity should not revert
+        IFactory(factory).deployCurvePool(
+            address(principalToken),
+            curvePoolParams,
+            data.initialLiquidityInIBT,
+            data.minPTShares
+        );
+
+        vm.stopPrank();
+    }
+
     function testFactoryDeployAllWithoutInitialLiquidity() public {
         FactoryScript factoryScript = new FactoryScript();
-        factory = Factory(factoryScript.deployForTest(address(registry), address(accessManager)));
+        factory = Factory(
+            factoryScript.deployForTest(
+                address(registry),
+                curveAddressProvider,
+                address(accessManager)
+            )
+        );
         vm.prank(scriptAdmin);
         accessManager.grantRole(Roles.ADMIN_ROLE, address(factory), 0);
         vm.prank(scriptAdmin);
@@ -370,13 +459,11 @@ contract ContractFactory is Test {
             initial_price: 1e18
         });
 
-        vm.prank(scriptAdmin);
-        IFactory(factory).setCurveAddressProvider(address(curveAddressProvider));
-
         (address pt, address curvePool) = IFactory(factory).deployAll(
             address(ibt),
             DURATION,
             curvePoolParams,
+            0,
             0
         );
         assertEq(IPrincipalToken(pt).underlying(), ibt.asset());
@@ -428,7 +515,13 @@ contract ContractFactory is Test {
         }
         _increaseRate(_changeRate);
         FactoryScript factoryScript = new FactoryScript();
-        factory = Factory(factoryScript.deployForTest(address(registry), address(accessManager)));
+        factory = Factory(
+            factoryScript.deployForTest(
+                address(registry),
+                curveAddressProvider,
+                address(accessManager)
+            )
+        );
         vm.prank(scriptAdmin);
         accessManager.grantRole(Roles.ADMIN_ROLE, address(factory), 0);
         vm.prank(scriptAdmin);
@@ -449,8 +542,33 @@ contract ContractFactory is Test {
 
         data.initialLiquidityInIBT = amount;
 
-        vm.prank(scriptAdmin);
-        IFactory(factory).setCurveAddressProvider(address(curveAddressProvider));
+        {
+            uint256 poolPTBalance = 10 ** IERC20Metadata(ibt).decimals();
+            uint256 poolIBTBalance = poolPTBalance.mulDiv(initialPrice, CurvePoolUtil.CURVE_UNIT);
+            uint256 currentIBTRate = ibt.previewRedeem(IBT_UNIT).toRay(underlying.decimals());
+
+            // convert the worth of the fictive IBT balance in the pool to (not yet deployed) PT
+            poolIBTBalance -= poolIBTBalance.mulDiv(
+                TOKENIZATION_FEE,
+                FEE_DIVISOR,
+                Math.Rounding.Ceil
+            );
+            uint256 poolIBTBalanceInPT = poolIBTBalance.mulDiv(currentIBTRate, RayMath.RAY_UNIT);
+
+            // compute the portion of IBT to deposit in PT
+            uint256 ibtsToTokenize = data.initialLiquidityInIBT.mulDiv(
+                poolPTBalance,
+                poolIBTBalanceInPT + poolPTBalance
+            );
+
+            // convert the portion of IBT to (not yet deployed) PT
+            ibtsToTokenize -= ibtsToTokenize.mulDiv(
+                TOKENIZATION_FEE,
+                FEE_DIVISOR,
+                Math.Rounding.Ceil
+            );
+            data.minPTShares = ibtsToTokenize.mulDiv(currentIBTRate, RayMath.RAY_UNIT);
+        }
 
         underlying.mint(MOCK_ADDR_1, 3 * ibt.convertToAssets(amount));
         vm.startPrank(MOCK_ADDR_1);
@@ -467,7 +585,8 @@ contract ContractFactory is Test {
             address(ibt),
             DURATION,
             curvePoolParams,
-            data.initialLiquidityInIBT
+            data.initialLiquidityInIBT,
+            data.minPTShares
         );
         vm.stopPrank();
 
@@ -545,13 +664,29 @@ contract ContractFactory is Test {
             "IBT balance of user is wrong"
         );
 
+        {
+            uint256 poolPTBalance = 10 ** IERC20Metadata(ibt).decimals();
+            uint256 poolIBTBalance = poolPTBalance.mulDiv(initialPrice, CurvePoolUtil.CURVE_UNIT);
+            // convert the worth of the fictive IBT balance in the pool to PT
+            uint256 poolIBTBalanceInPT = IPrincipalToken(pt).previewDepositIBT(poolIBTBalance);
+
+            // compute the portion of IBT to deposit in PT
+            uint256 ibtsToTokenize = data.initialLiquidityInIBT.mulDiv(
+                poolPTBalance,
+                poolIBTBalanceInPT + poolPTBalance
+            );
+
+            data.minPTShares = IPrincipalToken(pt).previewDepositIBT(ibtsToTokenize);
+        }
+
         // testing factory's deploy curve pool
         vm.startPrank(MOCK_ADDR_1);
         ibt.approve(address(factory), amount);
         address curvePool2 = IFactory(factory).deployCurvePool(
             pt,
             curvePoolParams,
-            data.initialLiquidityInIBT
+            data.initialLiquidityInIBT,
+            data.minPTShares
         );
         vm.stopPrank();
 
@@ -630,7 +765,13 @@ contract ContractFactory is Test {
                 address(accessManager)
             )
         );
-        factory = Factory(factoryScript.deployForTest(address(registry2), address(accessManager)));
+        factory = Factory(
+            factoryScript.deployForTest(
+                address(registry2),
+                curveAddressProvider,
+                address(accessManager)
+            )
+        );
         vm.prank(scriptAdmin);
         accessManager.grantRole(Roles.ADMIN_ROLE, address(factory), 0);
         vm.prank(scriptAdmin);
@@ -649,13 +790,10 @@ contract ContractFactory is Test {
             initial_price: 1e18
         });
 
-        vm.prank(scriptAdmin);
-        IFactory(factory).setCurveAddressProvider(address(curveAddressProvider));
-
         bytes memory revertData = abi.encodeWithSelector(bytes4(keccak256("BeaconNotSet()")));
 
         vm.expectRevert(revertData);
-        IFactory(factory).deployAll(address(ibt), DURATION, curvePoolParams, 0);
+        IFactory(factory).deployAll(address(ibt), DURATION, curvePoolParams, 0, 0);
     }
 
     function _increaseTimeToExpiry() internal {

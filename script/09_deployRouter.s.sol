@@ -46,7 +46,7 @@ contract RouterScript is Script {
 
         routerUtil = address(new RouterUtil());
         console.log("RouterUtil deployed at", routerUtil);
-        address routerInstance = address(new Router());
+        address routerInstance = address(new Router(registry));
         console.log("Router instance deployed at", routerInstance);
         router = address(
             new AMTransparentUpgradeableProxy(

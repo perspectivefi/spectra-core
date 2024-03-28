@@ -21,7 +21,7 @@ contract DeployProtocolScript is Script {
     bytes4[] private _selectors_proxy_admin = new bytes4[](1);
     bytes4[] private _selectors_beacon = new bytes4[](1);
     bytes4[] private router_selector = new bytes4[](1);
-    bytes4[] private factory_selector = new bytes4[](2);
+    bytes4[] private factory_selector = new bytes4[](1);
     bytes4[] private fee_methods_selectors = new bytes4[](5);
     bytes4[] private registry_methods_selectors = new bytes4[](7);
 
@@ -68,7 +68,6 @@ contract DeployProtocolScript is Script {
         address ptBeacon;
         address ytInstance;
         address ytBeacon;
-        address curveAddrProvider;
         bytes32 adminSlot;
     }
 
@@ -97,8 +96,7 @@ contract DeployProtocolScript is Script {
         registry_methods_selectors[5] = IRegistry(address(0)).setRouter.selector;
         registry_methods_selectors[6] = IRegistry(address(0)).setRouterUtil.selector;
         router_selector[0] = Router(address(0)).setRouterUtil.selector;
-        factory_selector[0] = Factory(address(0)).setCurveAddressProvider.selector;
-        factory_selector[1] = Factory(address(0)).setRegistry.selector;
+        factory_selector[0] = Factory(address(0)).updateCurveFactory.selector;
 
         vm.startBroadcast();
 
@@ -188,6 +186,13 @@ contract DeployProtocolScript is Script {
                 revert(string.concat(envVar, " is not set in .env file"));
             }
             feeCollector = vm.envAddress(envVar);
+
+            // get Curve Address Provider from .env
+            envVar = string.concat("CURVE_ADDR_PROVIDER_", data.deploymentNetwork);
+            if (bytes(vm.envString(envVar)).length == 0) {
+                revert(string.concat(envVar, " is not set in .env file"));
+            }
+            curveAddressProvider = vm.envAddress(envVar);
         }
 
         IRegistry(registry).setTokenizationFee(tokenizationFee);
@@ -247,17 +252,13 @@ contract DeployProtocolScript is Script {
         IRegistry(registry).setYTBeacon(data.ytBeacon);
 
         // --- Factory Instance and Proxy (script 06) ---
-        data.factoryInstance = address(new Factory());
+        data.factoryInstance = address(new Factory(registry, curveAddressProvider));
         console.log("Factory instance deployed at", data.factoryInstance);
         factory = address(
             new AMTransparentUpgradeableProxy(
                 data.factoryInstance,
                 data.accessManager,
-                abi.encodeWithSelector(
-                    Factory(address(0)).initialize.selector,
-                    registry,
-                    data.accessManager
-                )
+                abi.encodeWithSelector(Factory(address(0)).initialize.selector, data.accessManager)
             )
         );
         console.log("Factory proxy deployed at", factory);
@@ -285,7 +286,7 @@ contract DeployProtocolScript is Script {
         // --- Router and RouterUtil (script 09) ---
         routerUtil = address(new RouterUtil());
         console.log("RouterUtil deployed at", routerUtil);
-        data.routerInstance = address(new Router());
+        data.routerInstance = address(new Router(registry));
         console.log("Router instance deployed at", data.routerInstance);
         router = address(
             new AMTransparentUpgradeableProxy(
@@ -314,13 +315,6 @@ contract DeployProtocolScript is Script {
         );
         IRegistry(registry).setRouter(router);
         IRegistry(registry).setRouterUtil(routerUtil);
-        // get Curve Address Provider from .env
-        envVar = string.concat("CURVE_ADDR_PROVIDER_", data.deploymentNetwork);
-        if (bytes(vm.envString(envVar)).length == 0) {
-            revert(string.concat(envVar, " is not set in .env file"));
-        }
-        data.curveAddrProvider = vm.envAddress(envVar);
-        IFactory(factory).setCurveAddressProvider(data.curveAddrProvider);
 
         if (!forTest) {
             // At the end of deployment Grand role in AccessManager

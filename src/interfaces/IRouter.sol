@@ -11,6 +11,15 @@ interface IRouter {
     /// @notice Thrown when attempting to execute commands and an incorrect number of inputs are provided
     error LengthMismatch();
 
+    /// @notice Thrown when onFlashloan() is called directly, rather than through a command execution.
+    error DirectOnFlashloanCall();
+
+    /// @notice Thrown when onFlashloan() is called by an address other than flashloan lender.
+    error UnauthorizedOnFlashloanCaller();
+
+    /// @notice Thrown when an address other than msgSender and Router reenters execute().
+    error UnauthorizedReentrantCall();
+
     /**
      * @dev Executes encoded commands along with provided inputs. Reverts if deadline has expired.
      * @param _commands A set of concatenated commands, each 1 byte in length
@@ -21,14 +30,14 @@ interface IRouter {
         bytes calldata _commands,
         bytes[] calldata _inputs,
         uint256 _deadline
-    ) external payable;
+    ) external;
 
     /**
      * @dev Executes encoded commands along with provided inputs.
      * @param _commands A set of concatenated commands, each 1 byte in length
      * @param _inputs An array of byte strings containing abi encoded inputs for each command
      */
-    function execute(bytes calldata _commands, bytes[] calldata _inputs) external payable;
+    function execute(bytes calldata _commands, bytes[] calldata _inputs) external;
 
     /**
      * @dev Simulates encoded commands along with provided inputs.

@@ -14,6 +14,7 @@ import "script/06_deployFactory.s.sol";
 import "script/07_deployPrincipalToken.s.sol";
 import "src/mocks/MockERC20.sol";
 import "src/mocks/MockIBT.sol";
+import "src/mocks/MockCurveAddressProvider.sol";
 import "src/libraries/Roles.sol";
 import "openzeppelin-contracts/proxy/beacon/UpgradeableBeacon.sol";
 import "src/libraries/RayMath.sol";
@@ -110,6 +111,7 @@ contract ContractPrincipalToken2 is Test {
     UpgradeableBeacon public ytBeacon;
     YieldToken public yt;
     Registry public registry;
+    address public curveAddressProvider;
     address feeCollector = 0x0000000000000000000000000000000000000FEE;
     address MOCK_ADDR_1 = 0x0000000000000000000000000000000000000001;
     address MOCK_ADDR_2 = 0x0000000000000000000000000000000000000002;
@@ -203,8 +205,15 @@ contract ContractPrincipalToken2 is Test {
             )
         );
         // Factory
+        curveAddressProvider = address(new MockCurveAddressProvider());
         FactoryScript factoryScript = new FactoryScript();
-        factory = Factory(factoryScript.deployForTest(address(registry), address(accessManager)));
+        factory = Factory(
+            factoryScript.deployForTest(
+                address(registry),
+                curveAddressProvider,
+                address(accessManager)
+            )
+        );
 
         vm.prank(scriptAdmin);
         accessManager.grantRole(Roles.ADMIN_ROLE, address(factory), 0);

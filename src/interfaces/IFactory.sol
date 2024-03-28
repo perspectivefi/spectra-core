@@ -43,12 +43,15 @@ interface IFactory {
      * abi.encodeWithSelector(initialize.selector, params)
      * List of parameters: name, symbol, coins [ibt,pt], A, gamma, mid_fee, out_fee,
      * allowed_extra_profit, fee_gamma, adjustment_step, admin_fee, ma_half_time, initial_price
+     * @param _initialLiquidityInIBT The initial IBT liquidity (to be split between IBT/PT) to be added to pool after deployment.
+     * @param _minPTShares The minimum allowed shares from deposit in PT. Ignored if _initialLiquidityInIBT is 0.
      * @return curvePoolAddr The address of the deployed curve pool.
      */
     function deployCurvePool(
         address _pt,
         CurvePoolParams calldata curvePoolParams,
-        uint256 _initialLiquidityInIBT
+        uint256 _initialLiquidityInIBT,
+        uint256 _minPTShares
     ) external returns (address curvePoolAddr);
 
     /**
@@ -59,6 +62,8 @@ interface IFactory {
      * abi.encodeWithSelector(initialize.selector, params)
      * List of parameters: name, symbol, coins [ibt,pt], A, gamma, mid_fee, out_fee,
      * allowed_extra_profit, fee_gamma, adjustment_step, admin_fee, ma_half_time, initial_price
+     * @param _initialLiquidityInIBT The initial IBT liquidity (to be split between IBT/PT) to be added to pool after deployment.
+     * @param _minPTShares The minimum allowed shares from deposit in PT. Ignored if _initialLiquidityInIBT is 0.
      * @return pt The address of the deployed PT.
      * @return curvePoolAddr The address of the deployed curve pool.
      */
@@ -66,7 +71,8 @@ interface IFactory {
         address _ibt,
         uint256 _duration,
         CurvePoolParams calldata curvePoolParams,
-        uint256 _initialLiquidityInIBT
+        uint256 _initialLiquidityInIBT,
+        uint256 _minPTShares
     ) external returns (address pt, address curvePoolAddr);
 
     /* GETTERS
@@ -94,15 +100,8 @@ interface IFactory {
      *****************************************************************************************************************/
 
     /**
-     * @notice Setter for the registry address. Can only be called by the owner.
-     * @param _newRegistry The address of the registry.
+     * @notice Setter for the Curve factory address used for deploying curve pools.
+     * Can only be called by admin.
      */
-    function setRegistry(address _newRegistry) external;
-
-    /**
-     * @notice Function which sets the curveAddressProvider address used in
-      getting the curve factory address. Can only be called by owner.
-     * @param _curveAddressProvider The address of the curveAddressProvider.
-     */
-    function setCurveAddressProvider(address _curveAddressProvider) external;
+    function updateCurveFactory() external;
 }

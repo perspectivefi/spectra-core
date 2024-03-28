@@ -47,7 +47,6 @@ contract ContractRouterFlashswapTest is RouterBaseTest {
         bytes[] memory inputs = new bytes[](1);
         inputs[0] = abi.encode(
             address(principalToken),
-            address(router),
             address(ibt),
             100 ether,
             abi.encode(flashLoanCommands, flashLoanInputs)
@@ -79,7 +78,9 @@ contract ContractRouterFlashswapTest is RouterBaseTest {
         flashLoanInputs[0] = abi.encode(
             address(principalToken),
             Constants.CONTRACT_BALANCE,
-            Constants.ADDRESS_THIS
+            Constants.ADDRESS_THIS,
+            Constants.ADDRESS_THIS,
+            0
         );
         // Swap principalToken for IBT
         flashLoanInputs[1] = abi.encode(
@@ -98,7 +99,6 @@ contract ContractRouterFlashswapTest is RouterBaseTest {
         // Borrow IBT
         inputs[0] = abi.encode(
             address(principalToken),
-            address(router),
             address(ibt),
             borrowedIBTAmount,
             abi.encode(flashLoanCommands, flashLoanInputs)
@@ -131,7 +131,9 @@ contract ContractRouterFlashswapTest is RouterBaseTest {
             flashLoanInputs[0] = abi.encode(
                 address(principalToken),
                 Constants.CONTRACT_BALANCE,
-                Constants.ADDRESS_THIS
+                Constants.ADDRESS_THIS,
+                Constants.ADDRESS_THIS,
+                0
             );
             // Swap principalToken for IBT
             flashLoanInputs[1] = abi.encode(
@@ -152,7 +154,6 @@ contract ContractRouterFlashswapTest is RouterBaseTest {
             // Borrow IBT
             inputs[0] = abi.encode(
                 address(principalToken),
-                address(router),
                 address(ibt),
                 borrowedIBTAmount,
                 abi.encode(flashLoanCommands, flashLoanInputs)
@@ -202,7 +203,8 @@ contract ContractRouterFlashswapTest is RouterBaseTest {
             flashLoanInputs[2] = abi.encode(
                 address(principalToken),
                 Constants.CONTRACT_BALANCE,
-                Constants.ADDRESS_THIS
+                Constants.ADDRESS_THIS,
+                0
             );
         }
         bytes memory commands = abi.encodePacked(
@@ -214,7 +216,6 @@ contract ContractRouterFlashswapTest is RouterBaseTest {
             // Borrow IBT
             inputs[0] = abi.encode(
                 address(principalToken),
-                address(router),
                 address(ibt),
                 borrowedIBTAmount,
                 abi.encode(flashLoanCommands, flashLoanInputs)

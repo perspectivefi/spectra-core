@@ -12,30 +12,26 @@ import "openzeppelin-contracts/access/manager/IAccessManager.sol";
 // script to deploy the Factory Instance and Proxy
 contract FactoryScript is Script {
     bytes4[] private selectors_proxy_admin = new bytes4[](1);
-    bytes4[] private factory_selector = new bytes4[](2);
+    bytes4[] private factory_selector = new bytes4[](1);
     address private testRes;
     address private registry;
+    address private curveAddressProvider;
     address private accessManager;
     bool private forTest;
 
     function run() public {
         vm.startBroadcast();
         selectors_proxy_admin[0] = AMProxyAdmin(address(0)).upgradeAndCall.selector;
-        factory_selector[0] = Factory(address(0)).setCurveAddressProvider.selector;
-        factory_selector[1] = Factory(address(0)).setRegistry.selector;
+        factory_selector[0] = Factory(address(0)).updateCurveFactory.selector;
         if (forTest) {
-            address factoryInstance = address(new Factory());
+            address factoryInstance = address(new Factory(registry, curveAddressProvider));
             console.log("Factory instance deployed at", factoryInstance);
 
             address FactoryProxy = address(
                 new AMTransparentUpgradeableProxy(
                     factoryInstance,
                     accessManager,
-                    abi.encodeWithSelector(
-                        Factory(address(0)).initialize.selector,
-                        registry,
-                        accessManager
-                    )
+                    abi.encodeWithSelector(Factory(address(0)).initialize.selector, accessManager)
                 )
             );
             console.log("Factory proxy deployed at", FactoryProxy);
@@ -72,18 +68,20 @@ contract FactoryScript is Script {
             }
             registry = vm.envAddress(envVar);
 
-            address factoryInstance = address(new Factory());
+            envVar = string.concat("CURVE_ADDR_PROVIDER_", deploymentNetwork);
+            if (bytes(vm.envString(envVar)).length == 0) {
+                revert(string.concat(envVar, " is not set in .env file"));
+            }
+            curveAddressProvider = vm.envAddress(envVar);
+
+            address factoryInstance = address(new Factory(registry, curveAddressProvider));
             console.log("Factory instance deployed at", factoryInstance);
 
             address FactoryProxy = address(
                 new AMTransparentUpgradeableProxy(
                     factoryInstance,
                     accessManager,
-                    abi.encodeWithSelector(
-                        Factory(address(0)).initialize.selector,
-                        registry,
-                        accessManager
-                    )
+                    abi.encodeWithSelector(Factory(address(0)).initialize.selector, accessManager)
                 )
             );
             console.log("Factory proxy deployed at", FactoryProxy);
@@ -108,15 +106,18 @@ contract FactoryScript is Script {
 
     function deployForTest(
         address _registry,
+        address _curveAddressProvider,
         address _accessManager
     ) public returns (address _testRes) {
         forTest = true;
         registry = _registry;
+        curveAddressProvider = _curveAddressProvider;
         accessManager = _accessManager;
         run();
         forTest = false;
         _testRes = testRes;
         testRes = address(0);
+        curveAddressProvider = address(0);
         registry = address(0);
         accessManager = address(0);
     }

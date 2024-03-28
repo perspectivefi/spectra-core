@@ -2,18 +2,21 @@
 
 pragma solidity 0.8.20;
 
-import "openzeppelin-math/Math.sol";
-import "../libraries/RayMath.sol";
-import {IERC20} from "openzeppelin-contracts/interfaces/IERC20.sol";
-import {SafeERC20} from "openzeppelin-contracts/token/ERC20/utils/SafeERC20.sol";
-import {Ownable2StepUpgradeable} from "openzeppelin-contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
+import {Math} from "openzeppelin-math/Math.sol";
 import {IERC3156FlashBorrower} from "openzeppelin-contracts/interfaces/IERC3156FlashBorrower.sol";
-import {Dispatcher} from "./Dispatcher.sol";
+import {SafeERC20, IERC20} from "openzeppelin-contracts/token/ERC20/utils/SafeERC20.sol";
+import {RayMath} from "../libraries/RayMath.sol";
 import {IRouter} from "../interfaces/IRouter.sol";
+import {Dispatcher} from "./Dispatcher.sol";
 
-contract Router is Dispatcher, IRouter, Ownable2StepUpgradeable, IERC3156FlashBorrower {
+contract Router is Dispatcher, IRouter, IERC3156FlashBorrower {
     using SafeERC20 for IERC20;
     using Math for uint256;
+
+    /**
+     * @notice Maximum amount of tokens for which balance can be tracked in _previewRate()
+     */
+    uint256 private constant MAX_INVOLVED_TOKENS = 30;
 
     bytes32 private immutable ON_FLASH_LOAN = keccak256("ERC3156FlashBorrower.onFlashLoan");
 
@@ -25,7 +28,7 @@ contract Router is Dispatcher, IRouter, Ownable2StepUpgradeable, IERC3156FlashBo
     /**
      * @notice Constructor of the contract
      */
-    constructor() {
+    constructor(address _registry) Dispatcher(_registry) {
         _disableInitializers(); // using this so that the deployed logic contract later cannot be initialized.
     }
 
@@ -33,7 +36,6 @@ contract Router is Dispatcher, IRouter, Ownable2StepUpgradeable, IERC3156FlashBo
      * @notice Initializer of the contract.
      */
     function initialize(address _routerUtil, address _initialAuthority) external initializer {
-        __Ownable_init(_msgSender());
         initializeDispatcher(_routerUtil, _initialAuthority);
     }
 
@@ -44,14 +46,14 @@ contract Router is Dispatcher, IRouter, Ownable2StepUpgradeable, IERC3156FlashBo
         bytes calldata _commands,
         bytes[] calldata _inputs,
         uint256 _deadline
-    ) external payable override checkDeadline(_deadline) {
+    ) external override checkDeadline(_deadline) {
         execute(_commands, _inputs);
     }
 
     /**
      * @inheritdoc IRouter
      */
-    function execute(bytes calldata _commands, bytes[] calldata _inputs) public payable override {
+    function execute(bytes calldata _commands, bytes[] calldata _inputs) public override {
         uint256 numCommands = _commands.length;
         if (_inputs.length != numCommands) {
             revert LengthMismatch();
@@ -59,8 +61,12 @@ contract Router is Dispatcher, IRouter, Ownable2StepUpgradeable, IERC3156FlashBo
 
         // Relying on msg.sender is problematic as it changes during a flash loan.
         // Thus, it's necessary to track who initiated the original Router execution.
+        bool topLevel;
         if (msgSender == address(0)) {
             msgSender = msg.sender;
+            topLevel = true;
+        } else if (msg.sender != address(this)) {
+            revert UnauthorizedReentrantCall();
         }
         // loop through all given commands, execute them and pass along outputs as defined
         for (uint256 commandIndex; commandIndex < numCommands; ) {
@@ -73,7 +79,7 @@ contract Router is Dispatcher, IRouter, Ownable2StepUpgradeable, IERC3156FlashBo
                 commandIndex++;
             }
         }
-        if (msgSender == msg.sender)
+        if (topLevel)
             // top-level reset
             msgSender = address(0);
     }
@@ -96,7 +102,7 @@ contract Router is Dispatcher, IRouter, Ownable2StepUpgradeable, IERC3156FlashBo
             revert LengthMismatch();
         }
 
-        uint256 previousAmount;
+        TokenBalance[] memory balances = new TokenBalance[](MAX_INVOLVED_TOKENS);
         uint256 rate = RayMath.RAY_UNIT;
 
         // loop through all given commands, execute them and pass along outputs as defined
@@ -104,21 +110,10 @@ contract Router is Dispatcher, IRouter, Ownable2StepUpgradeable, IERC3156FlashBo
             bytes1 command = _commands[commandIndex];
             bytes calldata input = _inputs[commandIndex];
 
-            (uint256 commandRate, uint256 commandAmount) = _dispatchPreviewRate(
-                command,
-                input,
-                _spot,
-                previousAmount
-            );
+            uint256 commandRate = _dispatchPreviewRate(command, input, _spot, balances);
 
             if (commandRate != RayMath.RAY_UNIT) {
                 rate = rate.mulDiv(commandRate, RayMath.RAY_UNIT);
-            }
-
-            if (commandAmount != 0) {
-                previousAmount = commandAmount; // Keep track of the previous amount if it is forced
-            } else if (commandRate != RayMath.RAY_UNIT) {
-                previousAmount = previousAmount.mulDiv(commandRate, RayMath.RAY_UNIT); // If not, compute the new amount
             }
 
             unchecked {
@@ -159,13 +154,19 @@ contract Router is Dispatcher, IRouter, Ownable2StepUpgradeable, IERC3156FlashBo
         uint256 _fee,
         bytes calldata _data
     ) external returns (bytes32) {
+        if (msgSender == address(0)) {
+            revert DirectOnFlashloanCall();
+        }
+        if (msg.sender != flashloanLender) {
+            revert UnauthorizedOnFlashloanCaller();
+        }
         (bytes memory commands, bytes[] memory inputs) = abi.decode(_data, (bytes, bytes[]));
         this.execute(commands, inputs); // https://ethereum.stackexchange.com/questions/103437/converting-bytes-memory-to-bytes-calldata
         uint256 repayAmount = _amount + _fee;
         uint256 allowance = IERC20(_token).allowance(address(this), msg.sender);
         if (allowance < repayAmount) {
             // Approve the lender to pull the funds if needed
-            IERC20(_token).safeIncreaseAllowance(msg.sender, repayAmount - allowance);
+            IERC20(_token).forceApprove(msg.sender, repayAmount);
         }
         uint256 balance = IERC20(_token).balanceOf(address(this));
         if (balance < repayAmount) {

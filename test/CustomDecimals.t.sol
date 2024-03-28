@@ -183,7 +183,7 @@ contract CustomDecimals is Test {
     address public lpToken;
 
     uint256 fork;
-    string GOERLI_RPC_URL = vm.envString("GOERLI_RPC_URL");
+    string SEPOLIA_RPC_URL = vm.envString("SEPOLIA_RPC_URL");
     address public scriptAdmin;
     address public testUser;
 
@@ -223,14 +223,14 @@ contract CustomDecimals is Test {
      * @dev Function called before each test.
      */
     function setUp() public {
-        fork = vm.createFork(GOERLI_RPC_URL);
+        fork = vm.createFork(SEPOLIA_RPC_URL);
         vm.selectFork(fork);
         // default account for deploying scripts contracts. refer to line 35 of
         // https://github.com/foundry-rs/foundry/blob/master/evm/src/lib.rs for more details
         scriptAdmin = 0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38;
         testUser = address(this); // to reduce number of lines and repeated vm pranks
 
-        curveAddressProvider = address(0x44Ba140128cae03A13A7cD5F3Da32b5Cd73c1c7a);
+        curveAddressProvider = 0xEa003958e186cc7342C337da470Dc1B865796B94;
 
         deployAllScript = new DeployAllScript();
     }
@@ -1903,13 +1903,7 @@ contract CustomDecimals is Test {
         flashLoanInputs[0] = abi.encode(underlying, ASSET_UNIT);
         bytes memory commands = abi.encodePacked(bytes1(uint8(Commands.FLASH_LOAN)));
         bytes[] memory inputs = new bytes[](1);
-        inputs[0] = abi.encode(
-            pt,
-            router,
-            ibt,
-            _amount,
-            abi.encode(flashLoanCommands, flashLoanInputs)
-        );
+        inputs[0] = abi.encode(pt, ibt, _amount, abi.encode(flashLoanCommands, flashLoanInputs));
 
         dataPT.ibtBalBefore = IERC4626(ibt).balanceOf(address(this));
 
@@ -2719,7 +2713,13 @@ contract CustomDecimals is Test {
         );
         bytes[] memory flashLoanInputs = new bytes[](2);
         // Tokenize IBT into PrincipalToken:YieldToken
-        flashLoanInputs[0] = abi.encode(pt, Constants.CONTRACT_BALANCE, Constants.ADDRESS_THIS);
+        flashLoanInputs[0] = abi.encode(
+            pt,
+            Constants.CONTRACT_BALANCE,
+            Constants.ADDRESS_THIS,
+            Constants.ADDRESS_THIS,
+            0
+        );
         // Swap principalToken for IBT
         flashLoanInputs[1] = abi.encode(
             curvePool,
@@ -2737,7 +2737,6 @@ contract CustomDecimals is Test {
         // Borrow IBT
         inputs[0] = abi.encode(
             pt,
-            router,
             ibt,
             borrowedIBTAmount,
             abi.encode(flashLoanCommands, flashLoanInputs)
@@ -2792,7 +2791,13 @@ contract CustomDecimals is Test {
         bytes[] memory flashLoanInputs = new bytes[](2);
         {
             // Tokenize IBT into PrincipalToken:YieldToken
-            flashLoanInputs[0] = abi.encode(pt, Constants.CONTRACT_BALANCE, Constants.ADDRESS_THIS);
+            flashLoanInputs[0] = abi.encode(
+                pt,
+                Constants.CONTRACT_BALANCE,
+                Constants.ADDRESS_THIS,
+                Constants.ADDRESS_THIS,
+                0
+            );
             // Swap principalToken for IBT
             flashLoanInputs[1] = abi.encode(
                 curvePool,
@@ -2812,7 +2817,6 @@ contract CustomDecimals is Test {
             // Borrow IBT
             inputs[0] = abi.encode(
                 pt,
-                router,
                 ibt,
                 borrowedIBTAmount,
                 abi.encode(flashLoanCommands, flashLoanInputs)
@@ -2880,7 +2884,12 @@ contract CustomDecimals is Test {
             // Collect input YieldToken
             flashLoanInputs[1] = abi.encode(yt, inputYTAmount);
             // Withdraw principalToken:YieldToken for IBT
-            flashLoanInputs[2] = abi.encode(pt, Constants.CONTRACT_BALANCE, Constants.ADDRESS_THIS);
+            flashLoanInputs[2] = abi.encode(
+                pt,
+                Constants.CONTRACT_BALANCE,
+                Constants.ADDRESS_THIS,
+                0
+            );
         }
         bytes memory commands = abi.encodePacked(
             bytes1(uint8(Commands.FLASH_LOAN)),
@@ -2891,7 +2900,6 @@ contract CustomDecimals is Test {
             // Borrow IBT
             inputs[0] = abi.encode(
                 pt,
-                router,
                 ibt,
                 borrowedIBTAmount,
                 abi.encode(flashLoanCommands, flashLoanInputs)
@@ -3185,6 +3193,7 @@ contract CustomDecimals is Test {
         inputData._ptFlashLoanFee = _ptFlashLoanFee;
         inputData._feeCollector = feeCollector;
         inputData._initialLiquidityInIBT = 0;
+        inputData._minPTShares = 0;
         DeployAllScript.ReturnData memory returnData;
         returnData = deployAllScript.deployForTest(inputData);
         registry = returnData._registry;
@@ -3270,6 +3279,8 @@ contract CustomDecimals is Test {
         inputData._yieldFee = _yieldFee;
         inputData._ptFlashLoanFee = _ptFlashLoanFee;
         inputData._feeCollector = feeCollector;
+        inputData._initialLiquidityInIBT = 0;
+        inputData._minPTShares = 0;
         DeployAllScript.ReturnData memory returnData;
         returnData = deployAllScript.deployForTest(inputData);
         registry = returnData._registry;
@@ -4771,7 +4782,7 @@ contract CustomDecimals is Test {
         );
         bytes[] memory inputs = new bytes[](2);
         inputs[0] = abi.encode(underlying, assets);
-        inputs[1] = abi.encode(pt, Constants.CONTRACT_BALANCE, address(this));
+        inputs[1] = abi.encode(pt, Constants.CONTRACT_BALANCE, address(this), address(this), 0);
 
         data.expected2 = IPrincipalToken(pt).previewDeposit(assets);
 
@@ -4853,7 +4864,7 @@ contract CustomDecimals is Test {
         );
         bytes[] memory inputs = new bytes[](2);
         inputs[0] = abi.encode(ibt, ibts);
-        inputs[1] = abi.encode(pt, Constants.CONTRACT_BALANCE, address(this));
+        inputs[1] = abi.encode(pt, Constants.CONTRACT_BALANCE, address(this), address(this), 0);
 
         data.expected2 = IPrincipalToken(pt).previewDepositIBT(ibts);
 
@@ -5000,7 +5011,7 @@ contract CustomDecimals is Test {
         bytes[] memory inputs = new bytes[](3);
         inputs[0] = abi.encode(pt, shares);
         inputs[1] = abi.encode(yt, shares);
-        inputs[2] = abi.encode(pt, Constants.CONTRACT_BALANCE, address(this));
+        inputs[2] = abi.encode(pt, Constants.CONTRACT_BALANCE, address(this), 0);
 
         data.expected2 = IPrincipalToken(pt).previewRedeem(shares);
 
@@ -5085,7 +5096,7 @@ contract CustomDecimals is Test {
         bytes[] memory inputs = new bytes[](3);
         inputs[0] = abi.encode(pt, shares);
         inputs[1] = abi.encode(yt, shares);
-        inputs[2] = abi.encode(pt, Constants.CONTRACT_BALANCE, address(this));
+        inputs[2] = abi.encode(pt, Constants.CONTRACT_BALANCE, address(this), 0);
 
         data.expected2 = IPrincipalToken(pt).previewRedeemForIBT(shares);
 

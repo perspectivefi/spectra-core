@@ -6,6 +6,7 @@ import "forge-std/Test.sol";
 
 import "../src/mocks/MockERC20.sol";
 import "../src/mocks/MockIBT.sol";
+import "../src/mocks/MockCurveAddressProvider.sol";
 import "../src/oracle/RateOracle.sol";
 import "../script/00_deployAccessManager.s.sol";
 import "../script/01_deployRegistry.s.sol";
@@ -29,6 +30,7 @@ contract ContractRateOracle is Test {
     RateOracle public rateOracle;
     YieldToken public yt;
     Registry public registry;
+    address public curveAddressProvider;
     address feeCollector = 0x0000000000000000000000000000000000000FEE;
     address MOCK_ADDR_1 = 0x0000000000000000000000000000000000000001;
     uint256 public TOKENIZATION_FEE = 1e15;
@@ -106,9 +108,17 @@ contract ContractRateOracle is Test {
                 address(accessManager)
             )
         );
+
         // Factory
+        curveAddressProvider = address(new MockCurveAddressProvider());
         FactoryScript factoryScript = new FactoryScript();
-        factory = Factory(factoryScript.deployForTest(address(registry), address(accessManager)));
+        factory = Factory(
+            factoryScript.deployForTest(
+                address(registry),
+                curveAddressProvider,
+                address(accessManager)
+            )
+        );
         vm.prank(scriptAdmin);
         accessManager.grantRole(Roles.ADMIN_ROLE, address(factory), 0);
         vm.prank(scriptAdmin);

@@ -6,7 +6,6 @@ import "forge-std/Test.sol";
 import "forge-std/console.sol";
 
 import "../src/mocks/MockERC20.sol";
-import "../src/mocks/MockCurveAddressProvider.sol";
 import "../src/mocks/MockIBT.sol";
 import "../src/mocks/MockPrincipalTokenV2.sol";
 import "../script/00_deployAccessManager.s.sol";
@@ -53,13 +52,13 @@ contract AccessManagerSystem is Test {
     address MOCK_ADDR_2 = 0x0000000000000000000000000000000000000002;
     address feeCollector = 0x0000000000000000000000000000000000000FEE;
     address public curvePoolAddr;
-    address public curveAddressProvider = 0x44Ba140128cae03A13A7cD5F3Da32b5Cd73c1c7a;
+    address public curveAddressProvider;
     address public principalTokenAddr;
     YieldToken public yt;
     uint256 fork;
     UpgradeableBeacon public principalTokenBeacon;
     UpgradeableBeacon public ytBeacon;
-    string GOERLI_RPC_URL = vm.envString("GOERLI_RPC_URL");
+    string SEPOLIA_RPC_URL = vm.envString("SEPOLIA_RPC_URL");
     // Events
     event PTDeployed(address indexed principalToken, address indexed poolCreator);
     event CurvePoolDeployed(address indexed poolAddress, address indexed ibt, address indexed pt);
@@ -86,8 +85,9 @@ contract AccessManagerSystem is Test {
      * @dev This function is called before each test.
      */
     function setUp() public {
-        fork = vm.createFork(GOERLI_RPC_URL);
+        fork = vm.createFork(SEPOLIA_RPC_URL);
         vm.selectFork(fork);
+        curveAddressProvider = 0xEa003958e186cc7342C337da470Dc1B865796B94;
         admin = address(this);
         // default account for deploying scripts contracts. refer to line 35 of
         // https://github.com/foundry-rs/foundry/blob/master/evm/src/lib.rs for more details
@@ -145,7 +145,13 @@ contract AccessManagerSystem is Test {
         );
         // Factory
         FactoryScript factoryScript = new FactoryScript();
-        factory = Factory(factoryScript.deployForTest(address(registry), address(accessManager)));
+        factory = Factory(
+            factoryScript.deployForTest(
+                address(registry),
+                curveAddressProvider,
+                address(accessManager)
+            )
+        );
         vm.prank(scriptAdmin);
         accessManager.grantRole(Roles.ADMIN_ROLE, address(factory), 0);
         vm.prank(scriptAdmin);
@@ -185,8 +191,8 @@ contract AccessManagerSystem is Test {
             address(factory),
             address(ibt),
             principalTokenAddress,
-            address(curveAddressProvider),
             curvePoolDeploymentData,
+            0,
             0
         );
         (bool successLPToken, bytes memory response) = curvePoolAddr.call(
@@ -425,19 +431,13 @@ contract AccessManagerSystem is Test {
             bytes4(keccak256("AccessManagedUnauthorized(address)")),
             MOCK_ADDR_1
         );
-        MockCurveAddressProvider mockCurve = new MockCurveAddressProvider();
         vm.prank(MOCK_ADDR_1);
         vm.expectRevert(revertData);
-        factory.setCurveAddressProvider(address(mockCurve));
-        vm.expectRevert(revertData);
-        vm.prank(MOCK_ADDR_1);
-        factory.setRegistry(address(0xa));
+        factory.updateCurveFactory();
         vm.prank(accessManagersuperAdmin);
         accessManager.grantRole(Roles.REGISTRY_ROLE, MOCK_ADDR_1, 0);
         vm.prank(MOCK_ADDR_1);
-        factory.setCurveAddressProvider(address(mockCurve));
-        vm.prank(MOCK_ADDR_1);
-        factory.setRegistry(address(0xa));
+        factory.updateCurveFactory();
     }
 
     function testRouterAccess() public {

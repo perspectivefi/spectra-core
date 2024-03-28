@@ -6,6 +6,7 @@ import "forge-std/Test.sol";
 
 import "../src/mocks/MockFactoryV2.sol";
 import "../src/mocks/MockRouter.sol";
+import "../src/mocks/MockCurveAddressProvider.sol";
 import "../script/00_deployAccessManager.s.sol";
 import "../script/01_deployRegistry.s.sol";
 import "../script/09_deployRouter.s.sol";
@@ -19,6 +20,7 @@ contract TransparentProxyUpgrade is Test {
     AccessManager public accessManager;
     address public admin;
     address public scriptAdmin;
+    address public curveAddressProvider;
     address feeCollector = 0x0000000000000000000000000000000000000FEE;
     address MOCK_ADDR_1 = 0x0000000000000000000000000000000000000001;
     address MOCK_ADDR_2 = 0x0000000000000000000000000000000000000002;
@@ -46,6 +48,7 @@ contract TransparentProxyUpgrade is Test {
                 address(accessManager)
             )
         );
+        curveAddressProvider = address(new MockCurveAddressProvider());
         vm.startBroadcast();
         accessManager.grantRole(Roles.REGISTRY_ROLE, scriptAdmin, 0);
         accessManager.grantRole(Roles.FEE_SETTER_ROLE, scriptAdmin, 0);
@@ -54,8 +57,15 @@ contract TransparentProxyUpgrade is Test {
 
     function testUpgradeFactoryFailsWithWrongOwner() public {
         FactoryScript factoryScript = new FactoryScript();
-        address factory = factoryScript.deployForTest(address(registry), address(accessManager));
-        MockFactoryV2 mockFactoryV2Instance = new MockFactoryV2();
+        address factory = factoryScript.deployForTest(
+            address(registry),
+            curveAddressProvider,
+            address(accessManager)
+        );
+        MockFactoryV2 mockFactoryV2Instance = new MockFactoryV2(
+            address(registry),
+            curveAddressProvider
+        );
 
         bytes32 adminSlot = vm.load(factory, ERC1967Utils.ADMIN_SLOT);
         address proxyAdmin = address(uint160(uint256(adminSlot)));
@@ -77,7 +87,7 @@ contract TransparentProxyUpgrade is Test {
         RouterScript routerScript = new RouterScript();
         (address router, ) = routerScript.deployForTest(address(registry), address(accessManager));
 
-        address router2 = address(new Router());
+        address router2 = address(new Router(address(registry)));
 
         bytes32 adminSlot = vm.load(router, ERC1967Utils.ADMIN_SLOT);
         address proxyAdmin = address(uint160(uint256(adminSlot)));
@@ -99,7 +109,7 @@ contract TransparentProxyUpgrade is Test {
         RouterScript routerScript = new RouterScript();
         (address router, ) = routerScript.deployForTest(address(registry), address(accessManager));
 
-        address router2 = address(new Router());
+        address router2 = address(new Router(address(registry)));
 
         bytes32 adminSlot = vm.load(address(registry), ERC1967Utils.ADMIN_SLOT);
         address proxyAdmin = address(uint160(uint256(adminSlot)));
@@ -135,8 +145,15 @@ contract TransparentProxyUpgrade is Test {
 
     function testUpgradeFactoryFailsWithWrongProxyAdmin() public {
         FactoryScript factoryScript = new FactoryScript();
-        address factory = factoryScript.deployForTest(address(registry), address(accessManager));
-        MockFactoryV2 mockFactoryV2Instance = new MockFactoryV2();
+        address factory = factoryScript.deployForTest(
+            address(registry),
+            curveAddressProvider,
+            address(accessManager)
+        );
+        MockFactoryV2 mockFactoryV2Instance = new MockFactoryV2(
+            address(registry),
+            curveAddressProvider
+        );
 
         // getting registry's proxyAdmin instead of factory's
         bytes32 adminSlot = vm.load(address(registry), ERC1967Utils.ADMIN_SLOT);
@@ -158,10 +175,17 @@ contract TransparentProxyUpgrade is Test {
 
     function testUpgradeFactory() public {
         FactoryScript factoryScript = new FactoryScript();
-        address factory = factoryScript.deployForTest(address(registry), address(accessManager));
+        address factory = factoryScript.deployForTest(
+            address(registry),
+            curveAddressProvider,
+            address(accessManager)
+        );
         assertEq(IFactory(factory).getRegistry(), address(registry));
 
-        MockFactoryV2 mockFactoryV2Instance = new MockFactoryV2();
+        MockFactoryV2 mockFactoryV2Instance = new MockFactoryV2(
+            address(registry),
+            curveAddressProvider
+        );
         // We first need to grant UPGRADE_ROLE to scriptAdmin
         vm.prank(scriptAdmin);
         accessManager.grantRole(Roles.UPGRADE_ROLE, scriptAdmin, 0);
@@ -176,12 +200,19 @@ contract TransparentProxyUpgrade is Test {
 
     function testTransferFactoryProxyOwnership() public {
         FactoryScript factoryScript = new FactoryScript();
-        address factory = factoryScript.deployForTest(address(registry), address(accessManager));
+        address factory = factoryScript.deployForTest(
+            address(registry),
+            curveAddressProvider,
+            address(accessManager)
+        );
 
         bytes32 adminSlot = vm.load(factory, ERC1967Utils.ADMIN_SLOT);
         address proxyAdmin = address(uint160(uint256(adminSlot)));
 
-        MockFactoryV2 mockFactoryV2Instance = new MockFactoryV2();
+        MockFactoryV2 mockFactoryV2Instance = new MockFactoryV2(
+            address(registry),
+            curveAddressProvider
+        );
 
         // Set MOCK_ADDR_1 with UPGRADE_ROLE
         vm.prank(scriptAdmin);
@@ -235,7 +266,11 @@ contract TransparentProxyUpgrade is Test {
      */
     function testUnauthorizeedUpgradeCall() public {
         FactoryScript factoryScript = new FactoryScript();
-        address factory = factoryScript.deployForTest(address(registry), address(accessManager));
+        address factory = factoryScript.deployForTest(
+            address(registry),
+            curveAddressProvider,
+            address(accessManager)
+        );
         bytes32 adminSlot = vm.load(factory, ERC1967Utils.ADMIN_SLOT);
         address proxyAdmin = address(uint160(uint256(adminSlot)));
 

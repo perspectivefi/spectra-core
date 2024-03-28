@@ -14,10 +14,10 @@ remappings = ["openzeppelin-erc20-basic/=lib/openzeppelin-contracts/contracts/to
     "openzeppelin-contracts/=lib/openzeppelin-contracts/contracts/"]
 
 [rpc_endpoints]
-goerli = "${GOERLI_RPC_URL}"
+sepolia = "${SEPOLIA_RPC_URL}"
 
 [profile.etherscan]
-goerli = { key = "${ETHERSCAN_API_KEY}" }
+sepolia = { key = "${ETHERSCAN_API_KEY}" }
 
 [profile.fuzz]
 runs = 1024

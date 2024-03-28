@@ -3,18 +3,18 @@
 pragma solidity 0.8.20;
 
 import "openzeppelin-math/Math.sol";
-import "../libraries/CurvePoolUtil.sol";
-import "../interfaces/IFactory.sol";
-import "../interfaces/ICurvePool.sol";
-import "../interfaces/ICurveFactory.sol";
-import "../interfaces/IPrincipalToken.sol";
-import "../interfaces/IRegistry.sol";
-import "../libraries/Roles.sol";
 import "openzeppelin-contracts/access/manager/IAccessManager.sol";
-import "openzeppelin-contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import "openzeppelin-contracts-upgradeable/access/manager/AccessManagedUpgradeable.sol";
 import "openzeppelin-contracts/proxy/beacon/BeaconProxy.sol";
 import "openzeppelin-contracts/token/ERC20/utils/SafeERC20.sol";
+import "../interfaces/IFactory.sol";
+import "../interfaces/ICurvePool.sol";
+import "../interfaces/ICurveFactory.sol";
+import "../interfaces/ICurveAddressProvider.sol";
+import "../interfaces/IPrincipalToken.sol";
+import "../interfaces/IRegistry.sol";
+import "../libraries/CurvePoolUtil.sol";
+import "../libraries/Roles.sol";
 
 contract Factory is IFactory, AccessManagedUpgradeable {
     using SafeERC20 for IERC20;
@@ -25,11 +25,13 @@ contract Factory is IFactory, AccessManagedUpgradeable {
     bytes4 constant SET_REWARDS_PROXY_SELECTOR =
         IPrincipalToken(address(0)).setRewardsProxy.selector;
     bytes4 constant CLAIM_REWARDS_SELECTOR = IPrincipalToken(address(0)).claimRewards.selector;
+
+    address private immutable registry;
+    address private immutable curveAddressProvider;
+
     /* State
      *****************************************************************************************************************/
 
-    address private registry;
-    address private curveAddressProvider;
     address private curveFactory;
 
     /* Events
@@ -46,19 +48,25 @@ contract Factory is IFactory, AccessManagedUpgradeable {
 
     /**
      * @notice Constructor of the contract
+     * @param _registry The address of the registry.
+     * @param _curveAddressProvider The address of Curve AddressProvider.
      */
-    constructor() {
+    constructor(address _registry, address _curveAddressProvider) {
+        if (_registry == address(0) || _curveAddressProvider == address(0)) {
+            revert AddressError();
+        }
+        registry = _registry;
+        curveAddressProvider = _curveAddressProvider;
         _disableInitializers(); // using this so that the deployed logic contract later cannot be initialized.
     }
 
     /**
      * @notice Initializer of the contract
-     * @param _registry The address of the registry.
      * @param _initialAuthority The address of the access manager.
      */
-    function initialize(address _registry, address _initialAuthority) external initializer {
+    function initialize(address _initialAuthority) external initializer {
+        _updateCurveFactory();
         __AccessManaged_init(_initialAuthority);
-        setRegistry(_registry);
     }
 
     /** @dev See {IFactory-deployPT}. */
@@ -96,11 +104,9 @@ contract Factory is IFactory, AccessManagedUpgradeable {
     function deployCurvePool(
         address _pt,
         CurvePoolParams calldata _curvePoolParams,
-        uint256 _initialLiquidityInIBT
+        uint256 _initialLiquidityInIBT,
+        uint256 _minPTShares
     ) public returns (address curvePool) {
-        if (curveFactory == address(0)) {
-            revert CurveFactoryNotSet();
-        }
         if (!IRegistry(registry).isRegisteredPT(_pt)) {
             revert UnregisteredPT();
         }
@@ -117,7 +123,12 @@ contract Factory is IFactory, AccessManagedUpgradeable {
         emit CurvePoolDeployed(curvePool, ibt, _pt);
 
         if (_initialLiquidityInIBT != 0) {
-            _addInitialLiquidity(curvePool, _initialLiquidityInIBT, _curvePoolParams.initial_price);
+            _addInitialLiquidity(
+                curvePool,
+                _initialLiquidityInIBT,
+                _minPTShares,
+                _curvePoolParams.initial_price
+            );
         }
     }
 
@@ -126,7 +137,8 @@ contract Factory is IFactory, AccessManagedUpgradeable {
         address _ibt,
         uint256 _duration,
         CurvePoolParams calldata _curvePoolParams,
-        uint256 _initialLiquidityInIBT
+        uint256 _initialLiquidityInIBT,
+        uint256 _minPTShares
     ) public returns (address pt, address curvePool) {
         // deploy PT
         address ptBeacon = IRegistry(registry).getPTBeacon();
@@ -144,11 +156,18 @@ contract Factory is IFactory, AccessManagedUpgradeable {
         emit PTDeployed(pt, msg.sender);
         IRegistry(registry).addPT(pt);
         IAccessManager(accessManager).setTargetFunctionRole(pt, getPauserSigs(), Roles.PAUSER_ROLE);
+        IAccessManager(accessManager).setTargetFunctionRole(
+            pt,
+            getClaimRewardsProxySelectors(),
+            Roles.REWARDS_HARVESTER_ROLE
+        );
+        IAccessManager(accessManager).setTargetFunctionRole(
+            pt,
+            getSetRewardsProxySelectors(),
+            Roles.REWARDS_PROXY_SETTER_ROLE
+        );
 
         // deploy Curve Pool
-        if (curveFactory == address(0)) {
-            revert CurveFactoryNotSet();
-        }
         address[2] memory coins;
         {
             coins[0] = _ibt;
@@ -158,7 +177,12 @@ contract Factory is IFactory, AccessManagedUpgradeable {
         emit CurvePoolDeployed(curvePool, _ibt, pt);
 
         if (_initialLiquidityInIBT != 0) {
-            _addInitialLiquidity(curvePool, _initialLiquidityInIBT, _curvePoolParams.initial_price);
+            _addInitialLiquidity(
+                curvePool,
+                _initialLiquidityInIBT,
+                _minPTShares,
+                _curvePoolParams.initial_price
+            );
         }
     }
 
@@ -211,45 +235,38 @@ contract Factory is IFactory, AccessManagedUpgradeable {
     /* SETTERS
      *****************************************************************************************************************/
 
-    /** @dev See {IFactory-setCurveAddressProvider}. */
-    function setCurveAddressProvider(address _curveAddressProvider) external override restricted {
-        if (_curveAddressProvider == address(0)) {
-            revert AddressError();
-        }
-        emit CurveAddressProviderChange(curveAddressProvider, _curveAddressProvider);
-        curveAddressProvider = _curveAddressProvider;
-        _setCurveFactory();
-    }
-
-    /** @dev See {IFactory-setRegistry}. */
-    function setRegistry(address _newRegistry) public override restricted {
-        if (_newRegistry == address(0)) {
-            revert AddressError();
-        }
-        emit RegistryChange(registry, _newRegistry);
-        registry = _newRegistry;
+    /** @dev See {IFactory-updateCurveFactory}. */
+    function updateCurveFactory() public override restricted {
+        _updateCurveFactory();
     }
 
     /**
      * @dev Splits the given IBT amount into IBT and PT based on pool initial price, and adds liquidity to the pool.
      * @param _curvePool The address of the Curve Pool in which the user adds initial liquidity to
      * @param _initialLiquidityInIBT The initial liquidity to seed the Curve Pool with (in IBT)
+     * @param _minPTShares The minimum allowed shares from deposit in PT
      * @param _initialPrice The initial price of the Curve Pool
      */
     function _addInitialLiquidity(
         address _curvePool,
         uint256 _initialLiquidityInIBT,
+        uint256 _minPTShares,
         uint256 _initialPrice
     ) internal {
         address ibt = ICurvePool(_curvePool).coins(0);
         address pt = ICurvePool(_curvePool).coins(1);
 
-        IERC20(ibt).safeTransferFrom(msg.sender, address(this), _initialLiquidityInIBT);
+        {
+            // support for fee-on-transfer tokens
+            uint256 balBefore = IERC20(ibt).balanceOf(address(this));
+            IERC20(ibt).safeTransferFrom(msg.sender, address(this), _initialLiquidityInIBT);
+            _initialLiquidityInIBT = IERC20(ibt).balanceOf(address(this)) - balBefore;
+        }
 
         // using fictive pool balances, the user is adding liquidity in a ratio that (closely) matches the empty pool's initial price
         // with ptBalance = IBT_UNIT for having a fictive PT balance reference, ibtBalance = IBT_UNIT x initialPrice
         uint256 ptBalance = 10 ** IERC20Metadata(ibt).decimals();
-        uint256 ibtBalance = ptBalance.mulDiv(_initialPrice, 10 ** CurvePoolUtil.CURVE_DECIMALS);
+        uint256 ibtBalance = ptBalance.mulDiv(_initialPrice, CurvePoolUtil.CURVE_UNIT);
         // compute the worth of the fictive IBT balance in the pool in PT
         uint256 ibtBalanceInPT = IPrincipalToken(pt).previewDepositIBT(ibtBalance);
         // compute the portion of IBT to deposit in PT
@@ -262,35 +279,19 @@ contract Factory is IFactory, AccessManagedUpgradeable {
         uint256 amount0 = _initialLiquidityInIBT - ibtsToTokenize;
         uint256 allowancePT = IERC20(ibt).allowance(address(this), pt);
         if (allowancePT < ibtsToTokenize) {
-            IERC20(ibt).safeIncreaseAllowance(pt, type(uint256).max - allowancePT);
+            IERC20(ibt).forceApprove(pt, type(uint256).max);
         }
         // PT amount to deposit in Curve Pool
-        uint256 amount1;
-        if (IPrincipalToken(pt).previewDepositIBT(ibtsToTokenize) != 0) {
-            amount1 = IPrincipalToken(pt).depositIBT(ibtsToTokenize, address(this), msg.sender);
-        }
+        uint256 amount1 = IPrincipalToken(pt).depositIBT(
+            ibtsToTokenize,
+            address(this),
+            msg.sender,
+            _minPTShares
+        );
 
         IERC20(ibt).safeIncreaseAllowance(_curvePool, amount0);
         IERC20(pt).safeIncreaseAllowance(_curvePool, amount1);
         ICurvePool(_curvePool).add_liquidity([amount0, amount1], 0, false, msg.sender);
-    }
-
-    /**
-     * @dev Sets the curve factory address used for deploying the curve pool. Can only be called by owner.
-     */
-    function _setCurveFactory() internal {
-        // keccack's first 4 bytes of getter get_address(uint256) of curveAddressProvider is 0x493f4f74
-        // currently curve factory address is stored at index 6 on MAINNET.
-        uint256 index = 6;
-        (bool success, bytes memory responseData) = curveAddressProvider.call(
-            abi.encodeWithSelector(0x493f4f74, index)
-        );
-        if (!(success)) {
-            revert FailedToFetchCurveFactoryAddress();
-        }
-        address newCurveFactory = abi.decode(responseData, (address));
-        emit CurveFactoryChange(curveFactory, newCurveFactory);
-        curveFactory = newCurveFactory;
     }
 
     /**
@@ -300,6 +301,9 @@ contract Factory is IFactory, AccessManagedUpgradeable {
         address[2] memory _coins,
         CurvePoolParams calldata _p
     ) internal returns (address curvePoolAddr) {
+        if (curveFactory == address(0)) {
+            revert CurveFactoryNotSet();
+        }
         bytes memory name = bytes("Spectra-PT/IBT");
         bytes memory symbol = bytes("SPT-PT/IBT");
         bytes memory cd = new bytes(576); // calldata to the curve factory
@@ -381,5 +385,20 @@ contract Factory is IFactory, AccessManagedUpgradeable {
         assembly {
             curvePoolAddr := mload(add(add(result, 12), 20))
         }
+    }
+
+    function _updateCurveFactory() internal {
+        // According to Curve documentation, curve factory address is stored at index 6.
+        // See https://curve.readthedocs.io/registry-address-provider.html#address-ids
+        uint256 index = 6;
+        (bool success, bytes memory responseData) = curveAddressProvider.call(
+            abi.encodeWithSelector(ICurveAddressProvider(address(0)).get_address.selector, index)
+        );
+        if (!(success)) {
+            revert FailedToFetchCurveFactoryAddress();
+        }
+        address newCurveFactory = abi.decode(responseData, (address));
+        emit CurveFactoryChange(curveFactory, newCurveFactory);
+        curveFactory = newCurveFactory;
     }
 }

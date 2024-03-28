@@ -14,6 +14,7 @@ import "../src/proxy/AMProxyAdmin.sol";
 import "../src/router/Router.sol";
 import "../src/router/util/RouterUtil.sol";
 import "../src/libraries/Roles.sol";
+
 import "openzeppelin-contracts/access/manager/AccessManager.sol";
 
 // single script similar to scripts 00 to 12
@@ -21,7 +22,7 @@ contract DeployAllScript is Script {
     bytes4[] private _selectors_proxy_admin = new bytes4[](1);
     bytes4[] private _selectors_beacon = new bytes4[](1);
     bytes4[] private router_selector = new bytes4[](1);
-    bytes4[] private factory_selector = new bytes4[](2);
+    bytes4[] private factory_selector = new bytes4[](1);
     bytes4[] private fee_methods_selectors = new bytes4[](5);
     bytes4[] private registry_methods_selectors = new bytes4[](7);
 
@@ -35,6 +36,7 @@ contract DeployAllScript is Script {
     uint256 private ptFlashLoanFee;
     address private feeCollector;
     uint256 private initialLiquidityInIBT;
+    uint256 private minPTShares;
 
     // addresses returned in tests
     address private registry;
@@ -57,6 +59,7 @@ contract DeployAllScript is Script {
         uint256 _ptFlashLoanFee;
         address _feeCollector;
         uint256 _initialLiquidityInIBT;
+        uint256 _minPTShares;
     }
 
     // misc variables
@@ -75,7 +78,6 @@ contract DeployAllScript is Script {
         address ptBeacon;
         address ytInstance;
         address ytBeacon;
-        address curveAddrProvider;
         bytes32 adminSlot;
     }
 
@@ -106,8 +108,7 @@ contract DeployAllScript is Script {
         registry_methods_selectors[5] = IRegistry(address(0)).setRouter.selector;
         registry_methods_selectors[6] = IRegistry(address(0)).setRouterUtil.selector;
         router_selector[0] = Router(address(0)).setRouterUtil.selector;
-        factory_selector[0] = Factory(address(0)).setCurveAddressProvider.selector;
-        factory_selector[1] = Factory(address(0)).setRegistry.selector;
+        factory_selector[0] = Factory(address(0)).updateCurveFactory.selector;
 
         vm.startBroadcast();
 
@@ -198,12 +199,12 @@ contract DeployAllScript is Script {
             }
             feeCollector = vm.envAddress(envVar);
 
-            // get initial liquidity in IBT from .env
-            envVar = string.concat("INITIAL_LIQUIDITY_IBT_", data.deploymentNetwork);
+            // get Curve Address Provider from .env
+            envVar = string.concat("CURVE_ADDR_PROVIDER_", data.deploymentNetwork);
             if (bytes(vm.envString(envVar)).length == 0) {
                 revert(string.concat(envVar, " is not set in .env file"));
             }
-            initialLiquidityInIBT = vm.envUint(envVar);
+            curveAddressProvider = vm.envAddress(envVar);
         }
 
         IRegistry(registry).setTokenizationFee(tokenizationFee);
@@ -263,17 +264,13 @@ contract DeployAllScript is Script {
         IRegistry(registry).setYTBeacon(data.ytBeacon);
 
         // --- Factory Instance and Proxy (script 06) ---
-        data.factoryInstance = address(new Factory());
+        data.factoryInstance = address(new Factory(registry, curveAddressProvider));
         console.log("Factory instance deployed at", data.factoryInstance);
         factory = address(
             new AMTransparentUpgradeableProxy(
                 data.factoryInstance,
                 data.accessManager,
-                abi.encodeWithSelector(
-                    Factory(address(0)).initialize.selector,
-                    registry,
-                    data.accessManager
-                )
+                abi.encodeWithSelector(Factory(address(0)).initialize.selector, data.accessManager)
             )
         );
         console.log("Factory proxy deployed at", factory);
@@ -318,7 +315,6 @@ contract DeployAllScript is Script {
 
         IFactory.CurvePoolParams memory curvePoolParams;
         if (forTest) {
-            IFactory(factory).setCurveAddressProvider(curveAddressProvider);
             curvePoolParams.A = 4e9;
             curvePoolParams.gamma = 2e16;
             curvePoolParams.mid_fee = 5000000;
@@ -330,14 +326,6 @@ contract DeployAllScript is Script {
             curvePoolParams.ma_half_time = 600;
             curvePoolParams.initial_price = 0.8e18; //TODO refactor deployAll to get initialPriceparam
         } else {
-            // get Curve Address Provider from .env
-            envVar = string.concat("CURVE_ADDR_PROVIDER_", data.deploymentNetwork);
-            if (bytes(vm.envString(envVar)).length == 0) {
-                revert(string.concat(envVar, " is not set in .env file"));
-            }
-            data.curveAddrProvider = vm.envAddress(envVar);
-            IFactory(factory).setCurveAddressProvider(data.curveAddrProvider);
-
             // get Curve Pool A from .env
             envVar = string.concat("CURVE_POOL_PARAM_A_", data.deploymentNetwork);
             if (bytes(vm.envString(envVar)).length == 0) {
@@ -437,13 +425,29 @@ contract DeployAllScript is Script {
             if (curvePoolParams.initial_price == 0) {
                 revert(string.concat(envVar, " cannot be 0"));
             }
+
+            // get initial liquidity in IBT from .env
+            envVar = string.concat("INITIAL_LIQUIDITY_IBT_", data.deploymentNetwork);
+            if (bytes(vm.envString(envVar)).length == 0) {
+                revert(string.concat(envVar, " is not set in .env file"));
+            }
+            initialLiquidityInIBT = vm.envUint(envVar);
+
+            // get minimum allowed shares from deposit in PT from .env
+            envVar = string.concat("MIN_PT_SHARES_", data.deploymentNetwork);
+            if (bytes(vm.envString(envVar)).length == 0) {
+                revert(string.concat(envVar, " is not set in .env file"));
+            }
+            minPTShares = vm.envUint(envVar);
         }
 
+        IERC20(ibt).approve(factory, initialLiquidityInIBT);
         (pt, curvePool) = IFactory(factory).deployAll(
             ibt,
             duration,
             curvePoolParams,
-            initialLiquidityInIBT
+            initialLiquidityInIBT,
+            minPTShares
         );
         console.log("PrincipalToken deployed at", pt);
         console.log("YT deployed at", PrincipalToken(pt).getYT());
@@ -452,7 +456,7 @@ contract DeployAllScript is Script {
         // --- Router and RouterUtil (script 09) ---
         routerUtil = address(new RouterUtil());
         console.log("RouterUtil deployed at", routerUtil);
-        data.routerInstance = address(new Router());
+        data.routerInstance = address(new Router(registry));
         console.log("Router instance deployed at", data.routerInstance);
         router = address(
             new AMTransparentUpgradeableProxy(
@@ -542,6 +546,7 @@ contract DeployAllScript is Script {
         ptFlashLoanFee = inputData._ptFlashLoanFee;
         feeCollector = inputData._feeCollector;
         initialLiquidityInIBT = inputData._initialLiquidityInIBT;
+        minPTShares = inputData._minPTShares;
         run();
         forTest = false;
         ibt = address(0);
@@ -553,6 +558,7 @@ contract DeployAllScript is Script {
         ptFlashLoanFee = 0;
         feeCollector = address(0);
         initialLiquidityInIBT = 0;
+        minPTShares = 0;
         _returnData._registry = registry;
         _returnData._factory = factory;
         _returnData._pt = pt;

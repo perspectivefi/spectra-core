@@ -52,7 +52,7 @@ contract ContractRouterTest is RouterBaseTest {
         assertEq(ibtBalanceOfRouterBefore + amount, ibtBalanceOfRouterAfter);
     }
 
-    function testTransferFromFuzzDeadline(uint256 amount) public {
+    function testTransferFromWithDeadlineFuzz(uint256 amount) public {
         amount = bound(amount, 0, FAUCET_AMOUNT);
         bytes memory commands = abi.encodePacked(bytes1(uint8(Commands.TRANSFER_FROM)));
         bytes[] memory inputs = new bytes[](1);
@@ -300,7 +300,7 @@ contract ContractRouterTest is RouterBaseTest {
         );
     }
 
-    function testDepositUnderlyingInPTFuzz(uint256 depositAmount) public {
+    function testDepositUnderlyingInRegisteredPTFuzz(uint256 depositAmount) public {
         depositAmount = bound(depositAmount, 1000, FAUCET_AMOUNT);
         bytes memory commands = abi.encodePacked(
             bytes1(uint8(Commands.TRANSFER_FROM)),
@@ -308,7 +308,7 @@ contract ContractRouterTest is RouterBaseTest {
         );
         bytes[] memory inputs = new bytes[](2);
         inputs[0] = abi.encode(underlying, depositAmount);
-        inputs[1] = abi.encode(address(principalToken), depositAmount, testUser);
+        inputs[1] = abi.encode(address(principalToken), depositAmount, testUser, testUser, 0);
 
         uint256 underlyingBalanceOfUserBefore = underlying.balanceOf(testUser);
         uint256 underlyingBalanceOfRouterBefore = underlying.balanceOf(address(router));
@@ -317,7 +317,72 @@ contract ContractRouterTest is RouterBaseTest {
         uint256 ptBalanceOfUserBefore = principalToken.balanceOf(testUser);
         uint256 ptBalanceOfRouterBefore = principalToken.balanceOf(address(router));
 
+        assertEq(underlying.allowance(address(router), address(principalToken)), 0);
+
         router.execute(commands, inputs);
+
+        assertEq(underlying.allowance(address(router), address(principalToken)), type(uint256).max);
+
+        assertEq(
+            underlying.balanceOf(testUser) + depositAmount,
+            underlyingBalanceOfUserBefore,
+            "User's underlying balance after router execution is wrong"
+        );
+        assertEq(
+            underlying.balanceOf(address(router)),
+            underlyingBalanceOfRouterBefore,
+            "Router's underlying balance after router execution is wrong"
+        );
+        assertEq(
+            ibt.balanceOf(testUser),
+            ibtBalanceOfUserBefore,
+            "User's IBT balance after router execution is wrong"
+        );
+        assertEq(
+            ibt.balanceOf(address(router)),
+            ibtBalanceOfRouterBefore,
+            "Router's IBT balance after router execution is wrong"
+        );
+        assertApproxEqAbs(
+            principalToken.balanceOf(testUser),
+            ptBalanceOfUserBefore + principalToken.convertToPrincipal(depositAmount),
+            100,
+            "User's PT balance after router execution is wrong"
+        );
+        assertEq(
+            principalToken.balanceOf(address(router)),
+            ptBalanceOfRouterBefore,
+            "Router's PT balance after router execution is wrong"
+        );
+    }
+
+    function testDepositUnderlyingInUnregisteredPTFuzz(uint256 depositAmount) public {
+        depositAmount = bound(depositAmount, 1000, FAUCET_AMOUNT);
+
+        // unregister PT from Registry
+        vm.prank(scriptAdmin);
+        registry.removePT(address(principalToken));
+
+        bytes memory commands = abi.encodePacked(
+            bytes1(uint8(Commands.TRANSFER_FROM)),
+            bytes1(uint8(Commands.DEPOSIT_ASSET_IN_PT))
+        );
+        bytes[] memory inputs = new bytes[](2);
+        inputs[0] = abi.encode(underlying, depositAmount);
+        inputs[1] = abi.encode(address(principalToken), depositAmount, testUser, testUser, 0);
+
+        uint256 underlyingBalanceOfUserBefore = underlying.balanceOf(testUser);
+        uint256 underlyingBalanceOfRouterBefore = underlying.balanceOf(address(router));
+        uint256 ibtBalanceOfUserBefore = ibt.balanceOf(testUser);
+        uint256 ibtBalanceOfRouterBefore = ibt.balanceOf(address(router));
+        uint256 ptBalanceOfUserBefore = principalToken.balanceOf(testUser);
+        uint256 ptBalanceOfRouterBefore = principalToken.balanceOf(address(router));
+
+        assertEq(underlying.allowance(address(router), address(principalToken)), 0);
+
+        router.execute(commands, inputs);
+
+        assertEq(underlying.allowance(address(router), address(principalToken)), 0);
 
         assertEq(
             underlying.balanceOf(testUser) + depositAmount,
@@ -423,7 +488,6 @@ contract ContractRouterTest is RouterBaseTest {
         bytes[] memory inputs = new bytes[](1);
         inputs[0] = abi.encode(
             address(principalToken),
-            address(router),
             address(ibt),
             borrowAmount,
             abi.encode(flashLoanCommands, flashLoanInputs)
@@ -434,6 +498,28 @@ contract ContractRouterTest is RouterBaseTest {
         router.execute(commands, inputs);
         assertEq(underlying.balanceOf(address(this)), 0);
         assertEq(underlying.balanceOf(address(router)), FAUCET_AMOUNT);
+    }
+
+    function testFlashLoanInvalidLender() public {
+        // unregister PT
+        vm.prank(scriptAdmin);
+        registry.removePT(address(principalToken));
+
+        bytes memory commands = abi.encodePacked(bytes1(uint8(Commands.FLASH_LOAN)));
+        bytes[] memory inputs = new bytes[](1);
+        inputs[0] = abi.encode(
+            address(principalToken),
+            address(ibt),
+            1e18,
+            bytes("") // empty flashloan data
+        );
+
+        bytes memory revertData = abi.encodeWithSelector(
+            bytes4(keccak256("InvalidFlashloanLender(address)")),
+            address(principalToken)
+        );
+        vm.expectRevert(revertData);
+        router.execute(commands, inputs);
     }
 
     function testMinimumBalanceCheckFuzz(uint256 amount) public {
@@ -556,32 +642,6 @@ contract ContractRouterTest is RouterBaseTest {
         assertEq(previewRate, outputRate);
     }
 
-    function testPreviewSwapIBTToPTFuzz2(uint256 swapAmount) public {
-        swapAmount = bound(swapAmount, 1e18, 1e22); // Curve pool reverts when the swap amount is too low or too high due to liquidity
-        bytes memory commands = abi.encodePacked(
-            bytes1(uint8(Commands.TRANSFER)),
-            bytes1(uint8(Commands.CURVE_SWAP))
-        );
-        bytes[] memory inputs = new bytes[](2);
-        inputs[0] = abi.encode(ibt, other, swapAmount);
-        inputs[1] = abi.encode(
-            address(curvePool),
-            0, // IBT
-            1, // PT
-            swapAmount,
-            0, // No min output
-            testUser
-        );
-
-        uint256 outputRate = (curvePool.get_dy(0, 1, swapAmount) * Constants.UNIT) / swapAmount;
-
-        uint256 previewRate = router.previewRate(commands, inputs).fromRay(
-            CurvePoolUtil.CURVE_DECIMALS
-        );
-
-        assertEq(previewRate, outputRate);
-    }
-
     function testPreviewDispatcherInvalidCommandFuzz(uint256 swapAmount) public {
         swapAmount = 1e18; // Curve pool reverts when the swap amount is too low or too high due to liquidity
         bytes memory commands = abi.encodePacked(bytes1(uint8(123)));
@@ -598,7 +658,7 @@ contract ContractRouterTest is RouterBaseTest {
             bytes1(uint8(Commands.CURVE_SWAP))
         );
         bytes[] memory inputs = new bytes[](2);
-        inputs[0] = abi.encode(ibt, swapAmount);
+        inputs[0] = abi.encode(address(principalToken), swapAmount);
         inputs[1] = abi.encode(
             address(curvePool),
             1, // PT
@@ -623,7 +683,7 @@ contract ContractRouterTest is RouterBaseTest {
             bytes1(uint8(Commands.CURVE_SWAP))
         );
         bytes[] memory inputs = new bytes[](3);
-        inputs[0] = abi.encode(underlying, swapAmount);
+        inputs[0] = abi.encode(address(underlying), swapAmount);
         inputs[1] = abi.encode(address(ibt), Constants.CONTRACT_BALANCE, router);
         inputs[2] = abi.encode(
             address(curvePool),

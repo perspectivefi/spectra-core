@@ -14,9 +14,9 @@ contract CurvePoolScript is Script {
     address private factory;
     address private pt;
     address private ibt;
-    address private curveAddrProvider;
     IFactory.CurvePoolParams private curvePoolParams;
     uint256 private initialLiquidityInIBT;
+    uint256 private minPTShares;
     bool private forTest;
 
     function run() public {
@@ -26,12 +26,12 @@ contract CurvePoolScript is Script {
             revert("DEPLOYMENT_NETWORK is not set in .env file");
         }
         if (forTest) {
-            IFactory(factory).setCurveAddressProvider(curveAddrProvider);
-
+            IERC20(ibt).approve(factory, initialLiquidityInIBT);
             address curvePool = IFactory(factory).deployCurvePool(
                 pt,
                 curvePoolParams,
-                initialLiquidityInIBT
+                initialLiquidityInIBT,
+                minPTShares
             );
 
             console.log("Curve pool deployed deployed at", curvePool);
@@ -59,18 +59,6 @@ contract CurvePoolScript is Script {
                 revert(string.concat(envVar, " is not set in .env file"));
             }
             pt = vm.envAddress(envVar);
-
-            // get Curve Address Provider from .env
-            envVar = string.concat("CURVE_ADDR_PROVIDER_", deploymentNetwork);
-            if (bytes(vm.envString(envVar)).length == 0) {
-                revert(string.concat(envVar, " is not set in .env file"));
-            }
-            curveAddrProvider = vm.envAddress(envVar);
-
-            // set Curve Address Provider in factory if not already set
-            if (IFactory(factory).getCurveAddressProvider() == address(0)) {
-                IFactory(factory).setCurveAddressProvider(curveAddrProvider);
-            }
 
             // get Curve Pool A from .env
             envVar = string.concat("CURVE_POOL_PARAM_A_", deploymentNetwork);
@@ -176,7 +164,19 @@ contract CurvePoolScript is Script {
             }
             initialLiquidityInIBT = vm.envUint(envVar);
 
-            address curvePool = IFactory(factory).deployCurvePool(pt, data, initialLiquidityInIBT);
+            // get minimum allowed shares from deposit in PT from .env
+            envVar = string.concat("MIN_PT_SHARES_", deploymentNetwork);
+            if (bytes(vm.envString(envVar)).length == 0) {
+                revert(string.concat(envVar, " is not set in .env file"));
+            }
+            minPTShares = vm.envUint(envVar);
+            IERC20(ibt).approve(factory, initialLiquidityInIBT);
+            address curvePool = IFactory(factory).deployCurvePool(
+                pt,
+                data,
+                initialLiquidityInIBT,
+                minPTShares
+            );
             console.log("Curve pool deployed deployed at", curvePool);
         }
         vm.stopBroadcast();
@@ -186,17 +186,17 @@ contract CurvePoolScript is Script {
         address _factory,
         address _ibt,
         address _pt,
-        address _mockCurveAddressProvider,
         IFactory.CurvePoolParams memory _curvePoolData,
-        uint256 _initialLiquidityInIBT
+        uint256 _initialLiquidityInIBT,
+        uint256 _minPTShares
     ) public returns (address _testRes) {
         forTest = true;
         factory = _factory;
         ibt = _ibt;
         pt = _pt;
-        curveAddrProvider = _mockCurveAddressProvider;
         curvePoolParams = _curvePoolData;
         initialLiquidityInIBT = _initialLiquidityInIBT;
+        minPTShares = _minPTShares;
         run();
         forTest = false;
         _testRes = testRes;
@@ -204,8 +204,8 @@ contract CurvePoolScript is Script {
         factory = address(0);
         ibt = address(0);
         pt = address(0);
-        curveAddrProvider = address(0);
         curvePoolParams = IFactory.CurvePoolParams(0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
         initialLiquidityInIBT = 0;
+        minPTShares = 0;
     }
 }

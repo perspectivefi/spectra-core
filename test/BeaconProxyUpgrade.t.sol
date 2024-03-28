@@ -7,6 +7,7 @@ import "forge-std/Test.sol";
 import "../src/mocks/MockERC20.sol";
 import "../src/mocks/MockIBT.sol";
 import "../src/mocks/MockPrincipalTokenV2.sol";
+import "../src/mocks/MockCurveAddressProvider.sol";
 import "../script/00_deployAccessManager.s.sol";
 import "../script/01_deployRegistry.s.sol";
 import "../script/02_deployPrincipalTokenInstance.s.sol";
@@ -47,6 +48,7 @@ contract BeaconProxyUpgrade is Test {
     Registry public registry;
     address public admin;
     address public scriptAdmin;
+    address public curveAddressProvider;
     address feeCollector = 0x0000000000000000000000000000000000000FEE;
     address MOCK_ADDR_1 = 0x0000000000000000000000000000000000000001;
     address MOCK_ADDR_2 = 0x0000000000000000000000000000000000000002;
@@ -120,8 +122,15 @@ contract BeaconProxyUpgrade is Test {
         );
 
         // Factory
+        curveAddressProvider = address(new MockCurveAddressProvider());
         FactoryScript factoryScript = new FactoryScript();
-        factory = Factory(factoryScript.deployForTest(address(registry), address(accessManager)));
+        factory = Factory(
+            factoryScript.deployForTest(
+                address(registry),
+                curveAddressProvider,
+                address(accessManager)
+            )
+        );
         vm.prank(scriptAdmin);
         accessManager.grantRole(Roles.ADMIN_ROLE, address(factory), 0);
         vm.prank(scriptAdmin);

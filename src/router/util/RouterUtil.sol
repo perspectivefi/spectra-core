@@ -2,20 +2,15 @@
 
 pragma solidity 0.8.20;
 
-import "openzeppelin-math/Math.sol";
-import "openzeppelin-contracts/utils/math/SafeCast.sol";
-import "../../libraries/CurvePoolUtil.sol";
-import {IERC20} from "openzeppelin-contracts/interfaces/IERC20.sol";
+import {Math} from "openzeppelin-math/Math.sol";
 import {IERC20Metadata} from "openzeppelin-contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IERC4626} from "openzeppelin-contracts/interfaces/IERC4626.sol";
 import {IERC3156FlashLender} from "openzeppelin-contracts/interfaces/IERC3156FlashLender.sol";
-import {SafeERC20} from "openzeppelin-contracts/token/ERC20/utils/SafeERC20.sol";
-import {Ownable2StepUpgradeable} from "openzeppelin-contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
-import {Dispatcher} from "../Dispatcher.sol";
-import {Constants} from "../Constants.sol";
-import {IRouter} from "../../interfaces/IRouter.sol";
-import {IPrincipalToken} from "../../interfaces/IPrincipalToken.sol";
+import {SafeCast} from "openzeppelin-contracts/utils/math/SafeCast.sol";
+import {CurvePoolUtil} from "../../libraries/CurvePoolUtil.sol";
 import {ICurvePool} from "../../interfaces/ICurvePool.sol";
+import {IPrincipalToken} from "../../interfaces/IPrincipalToken.sol";
+import {Constants} from "../Constants.sol";
 
 contract RouterUtil {
     using Math for uint256;
@@ -37,7 +32,11 @@ contract RouterUtil {
         uint256 _j
     ) public view returns (uint256) {
         if (_i == 0 && _j == 1) {
-            return Constants.UNIT.mulDiv(Constants.UNIT, ICurvePool(_curvePool).last_prices());
+            return
+                CurvePoolUtil.CURVE_UNIT.mulDiv(
+                    CurvePoolUtil.CURVE_UNIT,
+                    ICurvePool(_curvePool).last_prices()
+                );
         } else if (_i == 1 && _j == 0) {
             return ICurvePool(_curvePool).last_prices();
         } else {

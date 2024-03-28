@@ -6,7 +6,6 @@ import "forge-std/Test.sol";
 import "openzeppelin-contracts/proxy/beacon/UpgradeableBeacon.sol";
 import "../src/mocks/MockERC20.sol";
 import "../src/mocks/MockIBT.sol";
-import "../src/mocks/MockCurveAddressProvider.sol";
 import "../script/00_deployAccessManager.s.sol";
 import "../script/01_deployRegistry.s.sol";
 import "../script/02_deployPrincipalTokenInstance.s.sol";
@@ -46,7 +45,7 @@ contract ContractFactoryForkTest is Test {
     address MOCK_ADDR_5 = 0x0000000000000000000000000000000000000005;
     uint256 fork;
 
-    string public GOERLI_RPC_URL = vm.envString("GOERLI_RPC_URL");
+    string public SEPOLIA_RPC_URL = vm.envString("SEPOLIA_RPC_URL");
     uint256 public TOKENIZATION_FEE = 1e15;
     uint256 public YIELD_FEE = 0;
     uint256 public PT_FLASH_LOAN_FEE = 0;
@@ -79,9 +78,9 @@ contract ContractFactoryForkTest is Test {
      * @dev This function is called before each test.
      */
     function setUp() public {
-        fork = vm.createFork(GOERLI_RPC_URL);
+        fork = vm.createFork(SEPOLIA_RPC_URL);
         vm.selectFork(fork);
-        curveAddressProvider = address(0x44Ba140128cae03A13A7cD5F3Da32b5Cd73c1c7a);
+        curveAddressProvider = 0xEa003958e186cc7342C337da470Dc1B865796B94;
         // default account for deploying scripts contracts. refer to line 35 of
         // https://github.com/foundry-rs/foundry/blob/master/evm/src/lib.rs for more details
         scriptAdmin = 0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38;
@@ -119,7 +118,7 @@ contract ContractFactoryForkTest is Test {
         principalTokenBeaconScript.deployForTest(principalTokenInstance, registry, accessManager);
         ytBeaconScript.deployForTest(ytInstance, registry, accessManager);
         FactoryScript factoryScript = new FactoryScript();
-        factory = factoryScript.deployForTest(registry, accessManager);
+        factory = factoryScript.deployForTest(registry, curveAddressProvider, accessManager);
         vm.prank(scriptAdmin);
         IAccessManager(accessManager).grantRole(Roles.ADMIN_ROLE, factory, 0);
         vm.prank(scriptAdmin);
@@ -173,8 +172,8 @@ contract ContractFactoryForkTest is Test {
             factory,
             ibt,
             principalToken,
-            curveAddressProvider,
             curvePoolDeploymentData,
+            0,
             0
         );
 
@@ -242,6 +241,7 @@ contract ContractFactoryForkTest is Test {
         inputData._ptFlashLoanFee = PT_FLASH_LOAN_FEE;
         inputData._feeCollector = feeCollector;
         inputData._initialLiquidityInIBT = 0;
+        inputData._minPTShares = 0;
 
         DeployAllScript.ReturnData memory returnData;
         returnData = deployAllScript.deployForTest(inputData);

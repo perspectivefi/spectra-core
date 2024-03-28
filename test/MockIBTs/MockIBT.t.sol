@@ -28,7 +28,7 @@ contract MockIBT is Test {
     address public lpToken;
 
     uint256 fork;
-    string GOERLI_RPC_URL = vm.envString("GOERLI_RPC_URL");
+    string SEPOLIA_RPC_URL = vm.envString("SEPOLIA_RPC_URL");
     address public scriptAdmin;
     address public testUser;
 
@@ -57,14 +57,14 @@ contract MockIBT is Test {
      * @dev Function called before each test.
      */
     function setUp() public {
-        fork = vm.createFork(GOERLI_RPC_URL);
+        fork = vm.createFork(SEPOLIA_RPC_URL);
         vm.selectFork(fork);
         // default account for deploying scripts contracts. refer to line 35 of
         // https://github.com/foundry-rs/foundry/blob/master/evm/src/lib.rs for more details
         scriptAdmin = 0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38;
         testUser = address(this); // to reduce number of lines and repeated vm pranks
 
-        curveAddressProvider = address(0x44Ba140128cae03A13A7cD5F3Da32b5Cd73c1c7a);
+        curveAddressProvider = 0xEa003958e186cc7342C337da470Dc1B865796B94;
 
         deployAllScript = new DeployAllScript();
     }
@@ -134,6 +134,7 @@ contract MockIBT is Test {
         inputData._ptFlashLoanFee = _ptFlashLoanFee;
         inputData._feeCollector = feeCollector;
         inputData._initialLiquidityInIBT = 0;
+        inputData._minPTShares = 0;
 
         DeployAllScript.ReturnData memory returnData;
         returnData = deployAllScript.deployForTest(inputData);

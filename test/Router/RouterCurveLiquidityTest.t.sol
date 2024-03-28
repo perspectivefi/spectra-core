@@ -1032,7 +1032,8 @@ contract ContractRouterLiquidityTest is RouterBaseTest {
             curvePool,
             Constants.CONTRACT_BALANCE,
             Constants.ADDRESS_THIS,
-            receiver
+            receiver,
+            0
         );
         inputs[3] = abi.encode(
             curvePool,
@@ -1061,7 +1062,8 @@ contract ContractRouterLiquidityTest is RouterBaseTest {
             curvePool,
             Constants.CONTRACT_BALANCE,
             Constants.ADDRESS_THIS,
-            receiver
+            receiver,
+            0
         );
         inputs[2] = abi.encode(
             curvePool,
@@ -1118,7 +1120,7 @@ contract ContractRouterLiquidityTest is RouterBaseTest {
             minAmounts,
             Constants.ADDRESS_THIS
         );
-        inputs[3] = abi.encode(pt, ytToSend, Constants.ADDRESS_THIS);
+        inputs[3] = abi.encode(pt, ytToSend, Constants.ADDRESS_THIS, 0);
         inputs[4] = abi.encode(ibt, receiver, Constants.CONTRACT_BALANCE);
         inputs[5] = abi.encode(pt, receiver, Constants.CONTRACT_BALANCE);
 
@@ -1154,7 +1156,7 @@ contract ContractRouterLiquidityTest is RouterBaseTest {
             minAmounts,
             Constants.ADDRESS_THIS
         );
-        inputs[3] = abi.encode(pt, ytToSend, receiver);
+        inputs[3] = abi.encode(pt, ytToSend, receiver, 0);
         inputs[4] = abi.encode(ibt, Constants.CONTRACT_BALANCE, receiver);
         inputs[5] = abi.encode(pt, receiver, Constants.CONTRACT_BALANCE);
 

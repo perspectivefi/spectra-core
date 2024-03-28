@@ -2,7 +2,6 @@
 
 pragma solidity 0.8.20;
 
-import "../router/Constants.sol";
 import "../interfaces/ICurvePool.sol";
 import "../interfaces/IPrincipalToken.sol";
 import "openzeppelin-math/Math.sol";
@@ -16,6 +15,8 @@ library CurvePoolUtil {
 
     /// @notice Decimal precision used internally in the Curve AMM
     uint256 public constant CURVE_DECIMALS = 18;
+    /// @notice Base unit for Curve AMM calculations
+    uint256 public constant CURVE_UNIT = 1e18;
     /// @notice Make rounding errors favoring other LPs a tiny bit
     uint256 private constant APPROXIMATION_DECREMENT = 1;
     /// @notice Maximal number of iterations in the binary search algorithm
@@ -148,7 +149,7 @@ library CurvePoolUtil {
                 _j
             );
 
-            if (loops > MAX_ITERATIONS_BINSEARCH) {
+            if (loops >= MAX_ITERATIONS_BINSEARCH) {
                 revert SolutionNotFound();
             }
         }

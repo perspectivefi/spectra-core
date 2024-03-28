@@ -79,6 +79,7 @@ contract MockIBTRedeemFeesTests is MockIBTFees {
         inputData._ptFlashLoanFee = _ptFlashLoanFee;
         inputData._feeCollector = feeCollector;
         inputData._initialLiquidityInIBT = 0;
+        inputData._minPTShares = 0;
 
         DeployAllScript.ReturnData memory returnData;
         returnData = deployAllScript.deployForTest(inputData);
