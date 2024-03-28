@@ -2,10 +2,11 @@
 
 import "openzeppelin-contracts/interfaces/IERC20.sol";
 
-pragma solidity 0.8.20;
+pragma solidity ^0.8.20;
 
 interface IYieldToken is IERC20 {
-    error CallerIsNotPtContract();
+    error EnforcedPause();
+    error UnauthorizedCaller();
 
     /**
      * @notice Initializer of the contract.
@@ -26,35 +27,32 @@ interface IYieldToken is IERC20 {
     function getPT() external view returns (address);
 
     /**
-     * @dev Moves `amount` tokens from the caller's account to `to`.
-     *
-     * Returns a boolean value indicating whether the operation succeeded.
-     *
-     * Emits a {Transfer} event.
+     * @dev Updates yield of sender and receiver in associated PT contract and
+     * then calls transfer of ERC20Upgradeable.
+     * See {ERC20Upgradeable-transfer}.
      */
     function transfer(address to, uint256 amount) external returns (bool);
 
     /**
-     * @dev Moves `amount` tokens from `from` to `to` using the
-     * allowance mechanism. `amount` is then deducted from the caller's
-     * allowance.
-     *
-     * Returns a boolean value indicating whether the operation succeeded.
-     *
-     * Emits a {Transfer} event.
+     * @dev Updates yield of sender and receiver in associated PT contract and
+     * then calls transferFrom of ERC20Upgradeable.
+     * See {ERC20Upgradeable-transferFrom}.
      */
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
 
     /**
-     * @notice checks for msg.sender to be pt and then calls _burn of ERC20Upgradeable.
-     * See {ERC20Upgradeable- _burn}.
-     * @param from address from which tokens will be burnt
+     * @notice Burn amount of tokens using ERC20Upgradeable-_burn, in the context of PT's redeem or withdraw.
+     * @dev call only be called by associated PT.
+     * @dev does not update owner's yield, as opposed to burn().
+     * See {ERC20Upgradeable-_burn}.
+     * @param owner address from which tokens will be burnt
+     * @param caller address who made the PT's redeem/withdraw call
      * @param amount to burn
      */
-    function burnWithoutUpdate(address from, uint256 amount) external;
+    function burnWithoutYieldUpdate(address owner, address caller, uint256 amount) external;
 
     /**
-     * @notice checks for msg.sender to be pt and then calls _mint of ERC20Upgradeable.
+     * @notice Checks for msg.sender to be pt and then calls _mint of ERC20Upgradeable.
      * See {ERC20Upgradeable- _mint}.
      * @param to address to mint YT's to
      * @param amount to mint
@@ -62,11 +60,18 @@ interface IYieldToken is IERC20 {
     function mint(address to, uint256 amount) external;
 
     /**
-     * @notice updates the yield of the caller and then calls _burn of ERC20Upgradeable.
+     * @notice Updates the yield of the caller and then calls _burn of ERC20Upgradeable.
      * See {ERC20Upgradeable-_burn}.
      * @param amount of YT's to burn
      */
     function burn(uint256 amount) external;
+
+    /**
+     * @dev Returns the amount of tokens in existence before expiry, and 0 after expiry
+     * @notice This behaviour is for UI/UX purposes only
+     * @return the value of YTs in existence, and 0 after expiry
+     */
+    function totalSupply() external view returns (uint256);
 
     /**
      * @dev Returns the amount of tokens owned by `account` before expiry, and 0 after expiry

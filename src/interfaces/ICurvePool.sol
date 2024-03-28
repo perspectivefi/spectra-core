@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-pragma solidity 0.8.20;
+pragma solidity ^0.8.20;
 
 interface ICurvePool {
     function coins(uint256 index) external view returns (address);

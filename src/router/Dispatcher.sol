@@ -43,10 +43,14 @@ abstract contract Dispatcher is AccessManagedUpgradeable {
         uint256 balance;
     }
 
+    /** @dev registry of the protocol */
     address public immutable registry;
 
+    /** @dev used during a router execution to track the initiator of the execution */
     address internal msgSender;
+    /** @dev used during a flashloan execution to track the lender address */
     address internal flashloanLender;
+    /** @notice Router Util contract */
     address public routerUtil;
 
     constructor(address _registry) {

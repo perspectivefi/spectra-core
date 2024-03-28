@@ -8,7 +8,8 @@ import "./interfaces/IRegistry.sol";
 
 /**
  * @title Registry Contract
- * @notice Keeps a record of all valid contract addresses currently used in the protocol
+ * @author Spectra Finance
+ * @notice Keeps a record of all valid contract addresses currently used in the protocol.
  */
 contract Registry is IRegistry, AccessManagedUpgradeable {
     using EnumerableSet for EnumerableSet.AddressSet;
@@ -34,7 +35,9 @@ contract Registry is IRegistry, AccessManagedUpgradeable {
     address private feeCollector;
 
     EnumerableSet.AddressSet private pts;
-    mapping(address => mapping(address => uint256)) private feeReduction; // For each pt, a list of whitelisted users get to see their fees reduced
+
+    /** @dev For each pt, a list of whitelisted users get to see their fees reduced */
+    mapping(address => mapping(address => uint256)) private feeReduction;
 
     /* Events
      *****************************************************************************************************************/

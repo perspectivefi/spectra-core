@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-pragma solidity 0.8.20;
+pragma solidity ^0.8.20;
 
 import "openzeppelin-contracts/interfaces/IERC20.sol";
 import "openzeppelin-contracts/interfaces/IERC20Metadata.sol";
@@ -19,10 +19,10 @@ interface IPrincipalToken is IERC20, IERC20Metadata, IERC3156FlashLender {
     error UnauthorizedCaller();
     error RatesAtExpiryAlreadyStored();
     error ERC5143SlippageProtectionFailed();
-    error UnsufficientBalance();
+    error InsufficientBalance();
     error FlashLoanExceedsMaxAmount();
     error FlashLoanCallbackFailed();
-    error NoRewardsProxySet();
+    error NoRewardsProxy();
     error ClaimRewardsFailed();
 
     /* Functions
@@ -122,7 +122,11 @@ interface IPrincipalToken is IERC20, IERC20Metadata, IERC3156FlashLender {
      * @param owner The owner of the shares
      * @return assets The actual amount of assets received for burning the shares
      */
-    function redeem(uint256 shares, address receiver, address owner) external returns (uint256);
+    function redeem(
+        uint256 shares,
+        address receiver,
+        address owner
+    ) external returns (uint256 assets);
 
     /**
      * @notice Burns owner's shares (PTs and YTs before expiry, PTs after expiry)
@@ -138,7 +142,7 @@ interface IPrincipalToken is IERC20, IERC20Metadata, IERC3156FlashLender {
         address receiver,
         address owner,
         uint256 minAssets
-    ) external returns (uint256);
+    ) external returns (uint256 assets);
 
     /**
      * @notice Burns owner's shares (PTs and YTs before expiry, PTs after expiry)
@@ -236,22 +240,31 @@ interface IPrincipalToken is IERC20, IERC20Metadata, IERC3156FlashLender {
     /**
      * @notice Claims caller's unclaimed yield in asset
      * @param _receiver The receiver of yield
+     * @param _minAssets The minimum amount of assets that should be received
      * @return yieldInAsset The amount of yield claimed in asset
      */
-    function claimYield(address _receiver) external returns (uint256 yieldInAsset);
+    function claimYield(
+        address _receiver,
+        uint256 _minAssets
+    ) external returns (uint256 yieldInAsset);
 
     /**
      * @notice Claims caller's unclaimed yield in IBT
      * @param _receiver The receiver of yield
+     * @param _minIBT The minimum amount of IBT that should be received
      * @return yieldInIBT The amount of yield claimed in IBT
      */
-    function claimYieldInIBT(address _receiver) external returns (uint256 yieldInIBT);
+    function claimYieldInIBT(
+        address _receiver,
+        uint256 _minIBT
+    ) external returns (uint256 yieldInIBT);
 
     /**
      * @notice Claims the collected ibt fees and redeems them to the fee collector
+     * @param _minAssets The minimum amount of assets that should be received
      * @return assets The amount of assets sent to the fee collector
      */
-    function claimFees() external returns (uint256 assets);
+    function claimFees(uint256 _minAssets) external returns (uint256 assets);
 
     /**
      * @notice Updates yield of both sender and receiver of YTs
@@ -377,10 +390,10 @@ interface IPrincipalToken is IERC20, IERC20Metadata, IERC3156FlashLender {
     function convertToUnderlying(uint256 principalAmount) external view returns (uint256);
 
     /**
-     * @notice Returns the address of the underlying token (or asset). Equivalent to ERC-4626's asset method.
-     * @return The address of the underlying token (or asset)
+     * @notice Returns whether or not the contract is paused.
+     * @return true if the contract is paused, and false otherwise
      */
-    function underlying() external view returns (address);
+    function paused() external view returns (bool);
 
     /**
      * @notice Returns the unix timestamp (uint256) at which the PT contract expires
@@ -393,6 +406,12 @@ interface IPrincipalToken is IERC20, IERC20Metadata, IERC3156FlashLender {
      * @return The duration (in s) to expiry/maturity of the PT contract
      */
     function getDuration() external view returns (uint256);
+
+    /**
+     * @notice Returns the address of the underlying token (or asset). Equivalent to ERC-4626's asset method.
+     * @return The address of the underlying token (or asset)
+     */
+    function underlying() external view returns (address);
 
     /**
      * @notice Returns the IBT address of the PT contract

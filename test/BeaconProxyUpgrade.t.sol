@@ -7,6 +7,7 @@ import "forge-std/Test.sol";
 import "../src/mocks/MockERC20.sol";
 import "../src/mocks/MockIBT.sol";
 import "../src/mocks/MockPrincipalTokenV2.sol";
+import "../src/mocks/MockYieldTokenV2.sol";
 import "../src/mocks/MockCurveAddressProvider.sol";
 import "../script/00_deployAccessManager.s.sol";
 import "../script/01_deployRegistry.s.sol";
@@ -270,6 +271,10 @@ contract BeaconProxyUpgrade is Test {
             DURATION
         );
         assertEq(IPrincipalToken(principalTokenAddress).maxDeposit(address(0)), type(uint256).max);
+        vm.expectRevert();
+        MockPrincipalTokenV2(principalTokenAddress).getTestUpgradeability();
+        vm.expectRevert();
+        MockPrincipalTokenV2(principalTokenAddress).setTestUpgradeability(address(this));
 
         MockPrincipalTokenV2 mockPrincipalTokenV2Instance = new MockPrincipalTokenV2(
             address(registry)
@@ -284,7 +289,49 @@ contract BeaconProxyUpgrade is Test {
             IPrincipalToken(principalTokenAddress).maxDeposit(address(0)),
             type(uint256).max - 1
         );
+        assertEq(MockPrincipalTokenV2(principalTokenAddress).getTestUpgradeability(), address(0));
+        MockPrincipalTokenV2(principalTokenAddress).setTestUpgradeability(address(this));
+        assertEq(
+            MockPrincipalTokenV2(principalTokenAddress).getTestUpgradeability(),
+            address(this)
+        );
         assertEq(principalTokenBeacon.implementation(), address(mockPrincipalTokenV2Instance));
+    }
+
+    function testUpgradeForExistingYT() public {
+        PrincipalTokenScript principalTokenScript = new PrincipalTokenScript();
+        address principalTokenAddress = principalTokenScript.deployForTest(
+            address(factory),
+            address(ibt),
+            DURATION
+        );
+        address ytAddress = IPrincipalToken(principalTokenAddress).getYT();
+
+        // checks pre-upgrade
+        vm.expectRevert();
+        MockYieldTokenV2(ytAddress).getPT2();
+        vm.expectRevert();
+        MockYieldTokenV2(ytAddress).getTestUpgradeability();
+        vm.expectRevert();
+        MockYieldTokenV2(ytAddress).setTestUpgradeability(0);
+        assertEq(MockYieldTokenV2(ytAddress).getPT(), principalTokenAddress);
+
+        MockYieldTokenV2 mockYieldTokenV2Instance = new MockYieldTokenV2();
+        // upgrade beacon
+        UpgradeBeaconLogicScript upgradeBeaconLogicScript = new UpgradeBeaconLogicScript();
+        upgradeBeaconLogicScript.upgradeForTest(
+            address(ytBeacon),
+            address(mockYieldTokenV2Instance)
+        );
+
+        // checks post-upgrade
+
+        assertEq(MockYieldTokenV2(ytAddress).getPT2(), address(0));
+        assertEq(MockYieldTokenV2(ytAddress).getTestUpgradeability(), 0);
+        MockYieldTokenV2(ytAddress).setTestUpgradeability(12);
+        assertEq(MockYieldTokenV2(ytAddress).getTestUpgradeability(), 12);
+        assertEq(MockYieldTokenV2(ytAddress).getPT(), principalTokenAddress);
+        assertEq(ytBeacon.implementation(), address(mockYieldTokenV2Instance));
     }
 
     function testTransferPTProxyOwnership() public {

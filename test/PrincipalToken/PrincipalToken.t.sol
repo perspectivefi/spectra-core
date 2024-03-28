@@ -139,7 +139,7 @@ contract ContractPrincipalToken1 is Test {
     uint256 public TOKENIZATION_FEE = 1e15;
     uint256 public YIELD_FEE = 0;
     uint256 public PT_FLASH_LOAN_FEE = 0;
-    uint256 public EXPIRY = block.timestamp + 100000;
+    uint256 public DURATION = 100000;
     uint256 public IBT_UNIT;
     address public testUser;
     address public scriptAdmin;
@@ -246,7 +246,7 @@ contract ContractPrincipalToken1 is Test {
         address principalTokenAddress = principalTokenScript.deployForTest(
             address(factory),
             address(ibt),
-            EXPIRY
+            DURATION
         );
         principalToken = PrincipalToken(principalTokenAddress);
         (ptRate, ibtRate) = _getPTAndIBTRates();
@@ -280,7 +280,7 @@ contract ContractPrincipalToken1 is Test {
         assertEq(type(uint256).max, principalToken.maxDeposit(address(0)));
     }
 
-    function testYTTransferFromWhenNotPaused() public {
+    function testYTTransferFrom() public {
         uint256 amountToDeposit = 1e18;
         underlying.approve(address(principalToken), amountToDeposit);
         principalToken.deposit(amountToDeposit, MOCK_ADDR_1);
@@ -304,13 +304,14 @@ contract ContractPrincipalToken1 is Test {
         );
     }
 
-    function testYTBalanceOfWhenNotExpired() public {
+    function testYTBalanceOfAndTotalSupplyWhenNotExpired() public {
         uint256 amountToDeposit = 1e18;
         underlying.approve(address(principalToken), amountToDeposit);
         principalToken.deposit(amountToDeposit, address(this));
 
         uint256 ptBalance = principalToken.balanceOf(address(this));
         uint256 ytBalance = yt.actualBalanceOf(address(this));
+        uint256 ytSupply = yt.totalSupply();
 
         // checks if PT balance is equal to deposited amount
         assertApproxEqAbs(
@@ -329,29 +330,72 @@ contract ContractPrincipalToken1 is Test {
             "After Deposit YieldToken balance is not equal to expected value"
         );
         assertLe(ytBalance, amountToDeposit);
+
+        // checks if YieldToken balance is equal to balance of unique depositor
+        assertEq(
+            ytSupply,
+            ytBalance,
+            "After expiry YieldToken total supply is not equal to expected value"
+        );
     }
 
-    function testYTBalanceOfWhenExpired() public {
+    function testYTBalanceOfAndTotalSupplyWhenExpired() public {
         uint256 amountToDeposit = 1e18;
         underlying.approve(address(principalToken), amountToDeposit);
         principalToken.deposit(amountToDeposit, address(this));
 
+        uint256 ptBalance1 = principalToken.balanceOf(address(this));
+        uint256 ytBalance1 = yt.balanceOf(address(this));
+        uint256 actualYTBalance1 = yt.actualBalanceOf(address(this));
+        uint256 ytSupply1 = yt.totalSupply();
+
         _increaseTimeToExpiry();
 
-        uint256 ptBalance = principalToken.balanceOf(address(this));
-        uint256 ytBalance = yt.balanceOf(address(this));
+        uint256 ptBalance2 = principalToken.balanceOf(address(this));
+        uint256 ytBalance2 = yt.balanceOf(address(this));
+        uint256 actualYTBalance2 = yt.actualBalanceOf(address(this));
+        uint256 ytSupply2 = yt.totalSupply();
 
         // checks if PT balance is equal to deposited amount
         assertApproxEqAbs(
-            ptBalance,
+            ptBalance1,
             amountToDeposit,
             1000,
             "After Deposit PT balance is not equal to expected value"
         );
-        assertLe(ptBalance, amountToDeposit);
+        assertEq(ptBalance1, ptBalance2, "After expiry pt balance is not the same as before");
 
-        // checks if YieldToken balance is equal to deposited amount
-        assertEq(ytBalance, 0, "After Deposit YieldToken balance is not equal to expected value");
+        // checks  if YT balance and total supply are different than 0 before expiry
+        assertEq(
+            ytBalance1,
+            ptBalance1,
+            "After expiry YieldToken balance is not equal to expected value"
+        );
+        assertEq(
+            ytSupply1,
+            ytBalance1,
+            "After expiry YieldToken total supply is not equal to expected value"
+        );
+
+        // checks if YT balance and total supply are equal to 0 after expiry
+        assertEq(ytBalance2, 0, "After expiry YieldToken balance is not equal to expected value");
+        assertEq(
+            ytSupply2,
+            0,
+            "After expiry YieldToken total supply is not equal to expected value"
+        );
+
+        // checks if YT actual balance is correct before and after expiry
+        assertEq(
+            actualYTBalance1,
+            actualYTBalance2,
+            "After expiry YieldToken actual balance is not equal to expected value"
+        );
+        assertEq(
+            actualYTBalance1,
+            ytBalance1,
+            "After expiry YieldToken actual balance is not equal to expected value"
+        );
     }
 
     function testDepositAtInitialRate() public {
@@ -1091,17 +1135,95 @@ contract ContractPrincipalToken1 is Test {
         underlying.approve(address(principalToken), amount);
         principalToken.deposit(amount, testUser);
 
-        uint256 beforeBalance = underlying.balanceOf(testUser);
-
-        principalToken.withdraw(amount, testUser, testUser);
+        _testWithdraw(amount, testUser, testUser);
 
         assertEq(principalToken.balanceOf(testUser), 0, "User share balance is incorrect");
         assertEq(yt.actualBalanceOf(testUser), 0, "User YieldToken balance is incorrect");
-        assertEq(
-            underlying.balanceOf(testUser),
-            beforeBalance + amount,
-            "User underlying balance is incorrect"
+    }
+
+    function testWithdrawOnBehalfBeforeExpiry() public {
+        uint256 amount = 1e18;
+        underlying.approve(address(principalToken), amount);
+        principalToken.deposit(amount, testUser);
+        assertEq(principalToken.allowance(testUser, MOCK_ADDR_1), 0);
+        assertEq(yt.allowance(testUser, MOCK_ADDR_1), 0);
+        principalToken.approve(MOCK_ADDR_1, amount);
+        yt.approve(MOCK_ADDR_1, amount);
+        assertEq(principalToken.allowance(testUser, MOCK_ADDR_1), amount);
+        assertEq(yt.allowance(testUser, MOCK_ADDR_1), amount);
+
+        vm.startPrank(MOCK_ADDR_1);
+        _testWithdraw(amount, MOCK_ADDR_1, testUser);
+
+        assertEq(principalToken.balanceOf(testUser), 0, "User share balance is incorrect");
+        assertEq(yt.actualBalanceOf(testUser), 0, "User YieldToken balance is incorrect");
+        assertEq(principalToken.allowance(testUser, MOCK_ADDR_1), 0);
+        assertEq(yt.allowance(testUser, MOCK_ADDR_1), 0);
+    }
+
+    function testWithdrawOnBehalfAfterExpiry() public {
+        uint256 amount = 1e18;
+        underlying.approve(address(principalToken), amount);
+        principalToken.deposit(amount, testUser);
+
+        _increaseTimeToExpiry();
+
+        assertEq(principalToken.allowance(testUser, MOCK_ADDR_1), 0);
+        principalToken.approve(MOCK_ADDR_1, amount);
+        // no approval needed for YT as it will not be burnt after expiry
+        assertEq(principalToken.allowance(testUser, MOCK_ADDR_1), amount);
+        assertEq(yt.allowance(testUser, MOCK_ADDR_1), 0);
+
+        vm.startPrank(MOCK_ADDR_1);
+        _testWithdraw(amount, MOCK_ADDR_1, testUser);
+
+        assertEq(principalToken.balanceOf(testUser), 0, "User share balance is incorrect");
+        assertEq(yt.actualBalanceOf(testUser), amount, "User YieldToken balance is incorrect");
+        assertEq(principalToken.allowance(testUser, MOCK_ADDR_1), 0);
+    }
+
+    function testWithdrawOnBehalfWithInsufficientAllowanceFail() public {
+        uint256 amountToDeposit = 1e18;
+
+        underlying.approve(address(principalToken), amountToDeposit);
+        principalToken.deposit(amountToDeposit, testUser);
+
+        vm.prank(MOCK_ADDR_1);
+        bytes memory revertData = abi.encodeWithSelector(
+            bytes4(keccak256("ERC20InsufficientAllowance(address,uint256,uint256)")),
+            MOCK_ADDR_1,
+            0,
+            1e18
         );
+        vm.expectRevert(revertData);
+        // PT._spendAllowance should revert as allowance == 0
+        principalToken.withdraw(1e18, MOCK_ADDR_1, testUser);
+
+        principalToken.approve(MOCK_ADDR_1, 1e18);
+
+        vm.prank(MOCK_ADDR_1);
+        revertData = abi.encodeWithSelector(
+            bytes4(keccak256("ERC20InsufficientAllowance(address,uint256,uint256)")),
+            MOCK_ADDR_1,
+            0,
+            1e18
+        );
+        vm.expectRevert(revertData);
+        // YT._spendAllowance should revert as allowance == 0
+        principalToken.withdraw(1e18, MOCK_ADDR_1, testUser);
+
+        yt.approve(MOCK_ADDR_1, 1e18 - 1);
+
+        vm.prank(MOCK_ADDR_1);
+        revertData = abi.encodeWithSelector(
+            bytes4(keccak256("ERC20InsufficientAllowance(address,uint256,uint256)")),
+            MOCK_ADDR_1,
+            1e18 - 1,
+            1e18
+        );
+        vm.expectRevert(revertData);
+        // YT._spendAllowance should revert as allowance == 1e18 - 1
+        principalToken.withdraw(1e18, MOCK_ADDR_1, testUser);
     }
 
     function testWithdrawWithMaxShares() public {
@@ -1196,26 +1318,12 @@ contract ContractPrincipalToken1 is Test {
         );
     }
 
-    function test100NYWithdrawFuzz(uint256 amountToDeposit) public {
-        amountToDeposit = bound(amountToDeposit, 1e16, 1000e18);
-        uint256 amountToWithdraw = amountToDeposit / 2;
-        vm.prank(testUser);
-
-        underlying.approve(address(principalToken), amountToDeposit);
-        principalToken.deposit(amountToDeposit, testUser);
-
-        _increaseRate(-100);
-
-        vm.expectRevert();
-        principalToken.withdraw(amountToWithdraw, MOCK_ADDR_1, testUser);
-    }
-
     function testWithdrawMoreThanLimit() public {
         uint256 amount = 1e18;
         underlying.approve(address(principalToken), amount);
         principalToken.deposit(amount, testUser);
 
-        bytes memory revertData = abi.encodeWithSignature("UnsufficientBalance()");
+        bytes memory revertData = abi.encodeWithSignature("InsufficientBalance()");
         vm.expectRevert(revertData);
         principalToken.withdraw(amount * 2, testUser, testUser);
     }
@@ -1254,7 +1362,7 @@ contract ContractPrincipalToken1 is Test {
         principalToken.deposit(amount, address(this));
 
         uint256 underlyingBalanceBefore = underlying.balanceOf(address(this));
-        principalToken.claimYield(address(this));
+        principalToken.claimYield(address(this), 0);
         uint256 underlyingBalanceAfter = underlying.balanceOf(address(this));
 
         assertEq(underlyingBalanceBefore, underlyingBalanceAfter, "Wrong underlying balance");
@@ -1267,7 +1375,7 @@ contract ContractPrincipalToken1 is Test {
 
         _increaseRate(100);
         uint256 underlyingBalanceBefore = underlying.balanceOf(address(this));
-        principalToken.claimYield(address(this));
+        principalToken.claimYield(address(this), 0);
         uint256 underlyingBalanceAfter = underlying.balanceOf(address(this));
 
         assertApproxEqAbs(
@@ -1286,7 +1394,7 @@ contract ContractPrincipalToken1 is Test {
         _increaseRate(-50);
 
         uint256 underlyingBalanceBefore = underlying.balanceOf(address(this));
-        principalToken.claimYield(address(this));
+        principalToken.claimYield(address(this), 0);
         uint256 underlyingBalanceAfter = underlying.balanceOf(address(this));
 
         assertEq(underlyingBalanceBefore, underlyingBalanceAfter, "Wrong underlying balance");
@@ -1788,49 +1896,104 @@ contract ContractPrincipalToken1 is Test {
         );
     }
 
-    function test100NYRedeemFuzz(uint256 amountToDeposit) public {
-        amountToDeposit = bound(amountToDeposit, 1e16, 1000e18);
-        uint256 redeemShares = amountToDeposit / 2;
-        vm.prank(testUser);
+    function testRedeemOnBehalfBeforeExpiry() public {
+        uint256 amountToDeposit = 1e18;
 
+        vm.startPrank(testUser);
         underlying.approve(address(principalToken), amountToDeposit);
         principalToken.deposit(amountToDeposit, testUser);
+        assertEq(principalToken.allowance(testUser, MOCK_ADDR_1), 0);
+        assertEq(yt.allowance(testUser, MOCK_ADDR_1), 0);
+        principalToken.approve(MOCK_ADDR_1, 1e18);
+        yt.approve(MOCK_ADDR_1, 1e18);
+        assertEq(principalToken.allowance(testUser, MOCK_ADDR_1), 1e18);
+        assertEq(yt.allowance(testUser, MOCK_ADDR_1), 1e18);
+        vm.stopPrank();
 
-        _increaseRate(-100);
-        _increaseTimeToExpiry();
-        principalToken.storeRatesAtExpiry();
+        vm.startPrank(MOCK_ADDR_1);
+        _testRedeem(1e18, MOCK_ADDR_1, testUser);
 
-        vm.expectRevert();
-        principalToken.redeem(redeemShares, testUser, testUser);
+        assertEq(principalToken.allowance(testUser, MOCK_ADDR_1), 0);
+        assertEq(yt.allowance(testUser, MOCK_ADDR_1), 0);
     }
 
-    function testRedeemWithoutAllowance() public {
+    function testRedeemOnBehalfAfterExpiry() public {
         uint256 amountToDeposit = 1e18;
-        vm.startPrank(testUser);
 
+        vm.startPrank(testUser);
         underlying.approve(address(principalToken), amountToDeposit);
         principalToken.deposit(amountToDeposit, testUser);
-
+        assertEq(principalToken.allowance(testUser, MOCK_ADDR_1), 0);
+        principalToken.approve(MOCK_ADDR_1, 1e18);
+        // no approval needed for YT as it will not be burnt after expiry
+        assertEq(principalToken.allowance(testUser, MOCK_ADDR_1), 1e18);
+        assertEq(yt.allowance(testUser, MOCK_ADDR_1), 0);
         vm.stopPrank();
+
         _increaseTimeToExpiry();
-        principalToken.storeRatesAtExpiry();
+
+        vm.startPrank(MOCK_ADDR_1);
+        _testRedeem(1e18, MOCK_ADDR_1, testUser);
+
+        assertEq(principalToken.allowance(testUser, MOCK_ADDR_1), 0);
+    }
+
+    function testRedeemOnBehalfWithInsufficientAllowanceFail() public {
+        uint256 amountToDeposit = 1e18;
+
+        vm.startPrank(testUser);
+        underlying.approve(address(principalToken), amountToDeposit);
+        principalToken.deposit(amountToDeposit, testUser);
+        vm.stopPrank();
 
         vm.prank(MOCK_ADDR_1);
-        bytes memory revertData = abi.encodeWithSignature("UnauthorizedCaller()");
+        bytes memory revertData = abi.encodeWithSelector(
+            bytes4(keccak256("ERC20InsufficientAllowance(address,uint256,uint256)")),
+            MOCK_ADDR_1,
+            0,
+            1e18
+        );
         vm.expectRevert(revertData);
+        // PT._spendAllowance should revert as allowance == 0
+        principalToken.redeem(1e18, MOCK_ADDR_1, testUser);
+
+        vm.prank(testUser);
+        principalToken.approve(MOCK_ADDR_1, 1e18);
+
+        vm.prank(MOCK_ADDR_1);
+        revertData = abi.encodeWithSelector(
+            bytes4(keccak256("ERC20InsufficientAllowance(address,uint256,uint256)")),
+            MOCK_ADDR_1,
+            0,
+            1e18
+        );
+        vm.expectRevert(revertData);
+        // YT._spendAllowance should revert as allowance == 0
+        principalToken.redeem(1e18, MOCK_ADDR_1, testUser);
+
+        vm.prank(testUser);
+        yt.approve(MOCK_ADDR_1, 1e18 - 1);
+
+        vm.prank(MOCK_ADDR_1);
+        revertData = abi.encodeWithSelector(
+            bytes4(keccak256("ERC20InsufficientAllowance(address,uint256,uint256)")),
+            MOCK_ADDR_1,
+            1e18 - 1,
+            1e18
+        );
+        vm.expectRevert(revertData);
+        // YT._spendAllowance should revert as allowance == 1e18 - 1
         principalToken.redeem(1e18, MOCK_ADDR_1, testUser);
     }
 
     function testRedeemMoreThanMax() public {
         uint256 amountToDeposit = 1e18;
-        vm.prank(testUser);
 
         underlying.approve(address(principalToken), amountToDeposit);
         principalToken.deposit(amountToDeposit, testUser);
-
         _increaseTimeToExpiry();
 
-        bytes memory revertData = abi.encodeWithSignature("UnsufficientBalance()");
+        bytes memory revertData = abi.encodeWithSignature("InsufficientBalance()");
         vm.expectRevert(revertData);
         principalToken.redeem(10e18, MOCK_ADDR_1, address(this));
     }
@@ -1866,7 +2029,7 @@ contract ContractPrincipalToken1 is Test {
         assertLe(principalToken.getUnclaimedFeesInIBT(), expectedUnclaimedFeesInIBT);
         vm.startPrank(feeCollector);
         uint256 expectedClaimedFees = ibt.previewRedeem(expectedUnclaimedFeesInIBT);
-        principalToken.claimFees();
+        principalToken.claimFees(0);
         assertApproxEqAbs(
             underlying.balanceOf(feeCollector),
             expectedClaimedFees,
@@ -1880,7 +2043,7 @@ contract ContractPrincipalToken1 is Test {
         bytes memory revertData = abi.encodeWithSignature("UnauthorizedCaller()");
         vm.expectRevert(revertData);
         vm.prank(MOCK_ADDR_1);
-        principalToken.claimFees();
+        principalToken.claimFees(0);
     }
 
     // Unit tests: Getters
@@ -2244,9 +2407,92 @@ contract ContractPrincipalToken1 is Test {
     function testGetMaturity() public {
         assertEq(
             principalToken.maturity(),
-            EXPIRY + block.timestamp,
+            DURATION + block.timestamp,
             "Inaccurate maturity returned"
         );
+    }
+
+    function testGetDuration() public {
+        assertEq(principalToken.getDuration(), DURATION, "Inaccurate duration returned");
+    }
+
+    function testPTGetters() public {
+        assertEq(address(ibt), principalToken.getIBT(), "IBT getter is wrong");
+        assertEq(0, principalToken.totalSupply(), "totalSupply method is wrong");
+        assertEq(
+            address(feeCollector),
+            registry.getFeeCollector(),
+            "getFeeCollector method is wrong"
+        );
+    }
+
+    function testPTMaxGetters() public {
+        uint256 depositAmount = 100e18;
+
+        assertEq(
+            type(uint256).max,
+            principalToken.maxDeposit(MOCK_ADDR_1),
+            "maxDeposit method is wrong"
+        );
+        assertEq(0, principalToken.maxWithdraw(MOCK_ADDR_1), "maxWithdraw method is wrong");
+        assertEq(0, principalToken.maxWithdrawIBT(MOCK_ADDR_1), "maxWithdrawIBT method is wrong");
+        assertEq(0, principalToken.maxRedeem(MOCK_ADDR_1), "maxRedeem method is wrong");
+
+        _testDeposit(depositAmount, MOCK_ADDR_1);
+
+        vm.prank(MOCK_ADDR_1);
+        yt.transfer(MOCK_ADDR_2, 1e18);
+
+        // expected values after depositing underlying + transfering some YTs.
+        // In this trivial setup, 1PT:YT pair is minted per deposited underlying.
+        assertEq(
+            type(uint256).max,
+            principalToken.maxDeposit(MOCK_ADDR_1),
+            "maxDeposit method is wrong"
+        );
+        assertEq(
+            depositAmount - 1e18,
+            principalToken.maxWithdraw(MOCK_ADDR_1),
+            "maxWithdraw method is wrong"
+        );
+        assertEq(
+            depositAmount - 1e18,
+            principalToken.maxWithdrawIBT(MOCK_ADDR_1),
+            "maxWithdrawIBT method is wrong"
+        );
+        assertEq(
+            depositAmount - 1e18,
+            principalToken.maxRedeem(MOCK_ADDR_1),
+            "maxRedeem method is wrong"
+        );
+
+        vm.prank(scriptAdmin);
+        principalToken.pause();
+
+        // expected values when PT is paused
+        assertEq(0, principalToken.maxDeposit(MOCK_ADDR_1), "maxDeposit method is wrong");
+        assertEq(0, principalToken.maxWithdraw(MOCK_ADDR_1), "maxWithdraw method is wrong");
+        assertEq(0, principalToken.maxWithdrawIBT(MOCK_ADDR_1), "maxWithdrawIBT method is wrong");
+        assertEq(0, principalToken.maxRedeem(MOCK_ADDR_1), "maxRedeem method is wrong");
+
+        vm.prank(scriptAdmin);
+        principalToken.unPause();
+
+        _increaseTimeToExpiry();
+
+        // expected values after expiry
+        assertEq(0, principalToken.maxDeposit(MOCK_ADDR_1), "maxDeposit method is wrong");
+        assertEq(
+            depositAmount,
+            principalToken.maxWithdraw(MOCK_ADDR_1),
+            "maxWithdraw method is wrong"
+        );
+        assertEq(
+            depositAmount,
+            principalToken.maxWithdrawIBT(MOCK_ADDR_1),
+            "maxWithdrawIBT method is wrong"
+        );
+        assertEq(depositAmount, principalToken.maxRedeem(MOCK_ADDR_1), "maxRedeem method is wrong");
     }
 
     // Scenario tests for deposit with IBT
@@ -2310,7 +2556,7 @@ contract ContractPrincipalToken1 is Test {
     }
 
     /**
-     * @dev Tests deposit and then transfers of PT to otehr addresses when yield is zero and when yield is positive
+     * @dev Tests deposit and then transfers of PT to other addresses when yield is zero and when yield is positive
        followed by transfers of yt to check if user is able to transfer yt even if he doesn't have pt in zero yield
        or positive yield case.
      */
@@ -2710,11 +2956,9 @@ contract ContractPrincipalToken1 is Test {
         );
     }
 
-    function testTransferYTFails() public {
+    function testYTTransferFails() public {
         uint256 amountToDeposit = 10e18;
-        uint256 actual = _testDeposit(amountToDeposit, address(this));
-        uint256 expected = principalToken.convertToPrincipal(amountToDeposit);
-        assertEq(expected, actual, "After deposit balance is not equal to expected value"); // checks if balances are accurate after deposit
+        _testDeposit(amountToDeposit, address(this));
 
         uint256 amountToTransfer = yt.actualBalanceOf(address(this)) * 2;
 
@@ -2726,6 +2970,53 @@ contract ContractPrincipalToken1 is Test {
         );
         vm.expectRevert(revertData);
         yt.transfer(MOCK_ADDR_1, amountToTransfer);
+
+        _increaseTimeToExpiry();
+
+        amountToTransfer = yt.actualBalanceOf(address(this));
+
+        revertData = abi.encodeWithSelector(
+            bytes4(keccak256("ERC20InsufficientBalance(address,uint256,uint256)")),
+            address(this),
+            0,
+            amountToTransfer
+        );
+        vm.expectRevert(revertData);
+        yt.transfer(MOCK_ADDR_1, amountToTransfer);
+    }
+
+    function testYTTransferFromFails() public {
+        uint256 amountToDeposit = 10e18;
+        _testDeposit(amountToDeposit, address(this));
+
+        uint256 ytActualBalance = yt.actualBalanceOf(address(this));
+        uint256 amountToTransfer = ytActualBalance * 2;
+
+        yt.approve(MOCK_ADDR_1, amountToTransfer);
+
+        vm.prank(MOCK_ADDR_1);
+        bytes memory revertData = abi.encodeWithSelector(
+            bytes4(keccak256("ERC20InsufficientBalance(address,uint256,uint256)")),
+            address(this),
+            ytActualBalance,
+            amountToTransfer
+        );
+        vm.expectRevert(revertData);
+        yt.transferFrom(address(this), MOCK_ADDR_1, amountToTransfer);
+
+        _increaseTimeToExpiry();
+
+        amountToTransfer = ytActualBalance;
+
+        vm.prank(MOCK_ADDR_1);
+        revertData = abi.encodeWithSelector(
+            bytes4(keccak256("ERC20InsufficientBalance(address,uint256,uint256)")),
+            address(this),
+            0,
+            amountToTransfer
+        );
+        vm.expectRevert(revertData);
+        yt.transferFrom(address(this), MOCK_ADDR_1, amountToTransfer);
     }
 
     function testTransferPTFrom() public {
@@ -2914,12 +3205,33 @@ contract ContractPrincipalToken1 is Test {
         );
     }
 
+    function testBurnAfterExpiryFail() public {
+        uint256 amountToDeposit = 100e18;
+        _testDeposit(amountToDeposit, address(this));
+
+        uint256 amountToBurn = yt.actualBalanceOf(address(this)) / 2;
+
+        _increaseTimeToExpiry();
+
+        bytes memory revertData = abi.encodeWithSelector(
+            bytes4(keccak256("ERC20InsufficientBalance(address,uint256,uint256)")),
+            address(this),
+            0,
+            amountToBurn
+        );
+        vm.expectRevert(revertData);
+        yt.burn(amountToBurn);
+
+        // burning 0 is still allowed
+        yt.burn(0);
+    }
+
     /**
-     * @dev Tests burnWithoutUpdate of YTs in various yield conditions.
-     * As opposed to the normal burn, calling burnWithoutUpdate of some YT amount should not update user yield
+     * @dev Tests burnWithoutYieldUpdate of YTs in various yield conditions.
+     * As opposed to the normal burn, calling burnWithoutYieldUpdate of some YT amount should not update user yield
      * and hence erase the user yield generated for this amount since last update.
      */
-    function testBurnWithoutUpdate() public {
+    function testburnWithoutYieldUpdate() public {
         uint256 amountToDeposit = 100e18;
         uint256 actual = _testDeposit(amountToDeposit, address(this));
         uint256 expected = principalToken.convertToPrincipal(amountToDeposit);
@@ -2933,7 +3245,7 @@ contract ContractPrincipalToken1 is Test {
         uint256 yieldOfUserInIBTBefore = principalToken.getCurrentYieldOfUserInIBT(address(this));
 
         vm.prank(address(principalToken));
-        yt.burnWithoutUpdate(address(this), amountToBurn);
+        yt.burnWithoutYieldUpdate(address(this), address(this), amountToBurn);
 
         uint256 ytBalanceAfter = yt.actualBalanceOf(address(this));
         uint256 yieldOfUserInIBTAfter = principalToken.getCurrentYieldOfUserInIBT(address(this));
@@ -2957,7 +3269,7 @@ contract ContractPrincipalToken1 is Test {
         _increaseRate(100);
 
         vm.prank(address(principalToken));
-        yt.burnWithoutUpdate(address(this), amountToBurn);
+        yt.burnWithoutYieldUpdate(address(this), address(this), amountToBurn);
 
         ytBalanceAfter = yt.actualBalanceOf(address(this));
         yieldOfUserInIBTAfter = principalToken.getCurrentYieldOfUserInIBT(address(this));
@@ -2987,7 +3299,7 @@ contract ContractPrincipalToken1 is Test {
 
         // burn half of user's YT
         vm.prank(address(principalToken));
-        yt.burnWithoutUpdate(address(this), amountToBurn);
+        yt.burnWithoutYieldUpdate(address(this), address(this), amountToBurn);
 
         ytBalanceAfter = yt.actualBalanceOf(address(this));
         yieldOfUserInIBTAfter = principalToken.getCurrentYieldOfUserInIBT(address(this));
@@ -3004,8 +3316,64 @@ contract ContractPrincipalToken1 is Test {
         );
     }
 
-    function testPauseInDeposit() public {
-        underlying.approve(address(principalToken), 1e18);
+    function testburnWithoutYieldUpdateOnBehalf() public {
+        uint256 amountToDeposit = 100e18;
+        _testDeposit(amountToDeposit, address(this));
+
+        uint256 amountToBurn = yt.actualBalanceOf(address(this)) / 2;
+        uint256 ytBalanceBefore = yt.actualBalanceOf(address(this));
+
+        yt.approve(MOCK_ADDR_1, amountToBurn);
+
+        vm.prank(address(principalToken));
+        yt.burnWithoutYieldUpdate(address(this), MOCK_ADDR_1, amountToBurn);
+
+        uint256 ytBalanceAfter = yt.actualBalanceOf(address(this));
+
+        assertEq(
+            ytBalanceBefore,
+            ytBalanceAfter + amountToBurn,
+            "YieldToken Balance after burn is not equal to expected value"
+        );
+    }
+
+    function testburnWithoutYieldUpdateOnBehalfWithInsufficientAllowanceFail() public {
+        uint256 amountToDeposit = 100e18;
+        _testDeposit(amountToDeposit, address(this));
+
+        uint256 amountToBurn = yt.actualBalanceOf(address(this)) / 2;
+
+        vm.prank(address(principalToken));
+        bytes memory revertData = abi.encodeWithSelector(
+            bytes4(keccak256("ERC20InsufficientAllowance(address,uint256,uint256)")),
+            MOCK_ADDR_1,
+            0,
+            amountToBurn
+        );
+        vm.expectRevert(revertData);
+        yt.burnWithoutYieldUpdate(address(this), MOCK_ADDR_1, amountToBurn);
+
+        yt.approve(MOCK_ADDR_1, amountToBurn - 1);
+
+        vm.prank(address(principalToken));
+        revertData = abi.encodeWithSelector(
+            bytes4(keccak256("ERC20InsufficientAllowance(address,uint256,uint256)")),
+            MOCK_ADDR_1,
+            amountToBurn - 1,
+            amountToBurn
+        );
+        vm.expectRevert(revertData);
+        yt.burnWithoutYieldUpdate(address(this), MOCK_ADDR_1, amountToBurn);
+    }
+
+    function testPauseInDepositActions() public {
+        uint256 amountToDeposit = 1e18;
+
+        underlying.approve(address(principalToken), amountToDeposit);
+
+        underlying.approve(address(ibt), amountToDeposit);
+        ibt.mint(amountToDeposit, address(this));
+        ibt.approve(address(principalToken), amountToDeposit);
 
         vm.expectEmit(false, false, false, true);
         emit Paused(scriptAdmin);
@@ -3013,23 +3381,45 @@ contract ContractPrincipalToken1 is Test {
         principalToken.pause();
 
         bytes memory revertData = abi.encodeWithSignature("EnforcedPause()");
+
         vm.expectRevert(revertData);
-        principalToken.deposit(1e18, address(this));
+        principalToken.previewDeposit(amountToDeposit);
+
+        vm.expectRevert(revertData);
+        principalToken.deposit(amountToDeposit, address(this));
+
+        vm.expectRevert(revertData);
+        principalToken.deposit(amountToDeposit, address(this), address(this));
+
+        vm.expectRevert(revertData);
+        principalToken.deposit(amountToDeposit, address(this), address(this), amountToDeposit);
+
+        vm.expectRevert(revertData);
+        principalToken.previewDepositIBT(amountToDeposit);
+
+        vm.expectRevert(revertData);
+        principalToken.depositIBT(amountToDeposit, address(this));
+
+        vm.expectRevert(revertData);
+        principalToken.depositIBT(amountToDeposit, address(this), address(this));
+
+        vm.expectRevert(revertData);
+        principalToken.depositIBT(amountToDeposit, address(this), address(this), amountToDeposit);
 
         vm.expectEmit(false, false, false, true);
         emit Unpaused(scriptAdmin);
         vm.prank(scriptAdmin);
         principalToken.unPause();
 
-        uint256 amountToDeposit = 1e18;
         _testDeposit(amountToDeposit, address(this));
     }
 
-    function testPauseInWithdraw() public {
+    function testPauseInWithdrawActions() public {
         uint256 amountToDeposit = 1e18;
         _testDeposit(amountToDeposit, address(this));
 
         uint256 maxWithdraw = principalToken.maxWithdraw(address(this));
+        uint256 maxWithdrawIBT = principalToken.maxWithdrawIBT(address(this));
 
         vm.expectEmit(false, false, false, true);
         emit Paused(scriptAdmin);
@@ -3037,8 +3427,24 @@ contract ContractPrincipalToken1 is Test {
         principalToken.pause();
 
         bytes memory revertData = abi.encodeWithSignature("EnforcedPause()");
+
+        vm.expectRevert(revertData);
+        principalToken.previewWithdraw(maxWithdraw);
+
         vm.expectRevert(revertData);
         principalToken.withdraw(maxWithdraw, MOCK_ADDR_1, address(this));
+
+        vm.expectRevert(revertData);
+        principalToken.withdraw(maxWithdraw, MOCK_ADDR_1, address(this), maxWithdraw);
+
+        vm.expectRevert(revertData);
+        principalToken.previewWithdrawIBT(maxWithdrawIBT);
+
+        vm.expectRevert(revertData);
+        principalToken.withdrawIBT(maxWithdrawIBT, MOCK_ADDR_1, address(this));
+
+        vm.expectRevert(revertData);
+        principalToken.withdrawIBT(maxWithdrawIBT, MOCK_ADDR_1, address(this), maxWithdrawIBT);
 
         vm.expectEmit(false, false, false, true);
         emit Unpaused(scriptAdmin);
@@ -3046,6 +3452,188 @@ contract ContractPrincipalToken1 is Test {
         principalToken.unPause();
 
         _testWithdraw(maxWithdraw, MOCK_ADDR_1, address(this));
+    }
+
+    function testPauseInRedeemActions() public {
+        uint256 amountToDeposit = 1e18;
+        _testDeposit(amountToDeposit, address(this));
+
+        uint256 maxRedeem = principalToken.maxRedeem(address(this));
+
+        vm.expectEmit(false, false, false, true);
+        emit Paused(scriptAdmin);
+        vm.prank(scriptAdmin);
+        principalToken.pause();
+
+        bytes memory revertData = abi.encodeWithSignature("EnforcedPause()");
+
+        vm.expectRevert(revertData);
+        principalToken.previewRedeem(maxRedeem);
+
+        vm.expectRevert(revertData);
+        principalToken.redeem(maxRedeem, MOCK_ADDR_1, address(this));
+
+        vm.expectRevert(revertData);
+        principalToken.redeem(maxRedeem, MOCK_ADDR_1, address(this), maxRedeem);
+
+        vm.expectRevert(revertData);
+        principalToken.previewRedeemForIBT(maxRedeem);
+
+        vm.expectRevert(revertData);
+        principalToken.redeemForIBT(maxRedeem, MOCK_ADDR_1, address(this));
+
+        vm.expectRevert(revertData);
+        principalToken.redeemForIBT(maxRedeem, MOCK_ADDR_1, address(this), maxRedeem);
+
+        vm.expectEmit(false, false, false, true);
+        emit Unpaused(scriptAdmin);
+        vm.prank(scriptAdmin);
+        principalToken.unPause();
+
+        _testRedeem(maxRedeem, MOCK_ADDR_1, address(this));
+    }
+
+    function testPauseInYieldActions() public {
+        uint256 amountToDeposit = 1e18;
+        _testDeposit(amountToDeposit, address(this));
+
+        vm.expectEmit(false, false, false, true);
+        emit Paused(scriptAdmin);
+        vm.prank(scriptAdmin);
+        principalToken.pause();
+
+        bytes memory revertData = abi.encodeWithSignature("EnforcedPause()");
+
+        vm.expectRevert(revertData);
+        principalToken.updateYield(address(this));
+
+        vm.expectRevert(revertData);
+        principalToken.claimYield(address(this), 0);
+
+        vm.expectRevert(revertData);
+        principalToken.claimYieldInIBT(address(this), 0);
+    }
+
+    function testPauseInClaimRewards() public {
+        vm.prank(scriptAdmin);
+        accessManager.grantRole(Roles.REWARDS_HARVESTER_ROLE, address(this), 0);
+
+        vm.expectEmit(false, false, false, true);
+        emit Paused(scriptAdmin);
+        vm.prank(scriptAdmin);
+        principalToken.pause();
+
+        bytes memory revertData = abi.encodeWithSignature("EnforcedPause()");
+
+        vm.expectRevert(revertData);
+        principalToken.claimRewards(bytes(""));
+    }
+
+    function testPauseInStoreRatesAtExpiry1() public {
+        _increaseTimeToExpiry();
+
+        vm.expectEmit(false, false, false, true);
+        emit Paused(scriptAdmin);
+        vm.prank(scriptAdmin);
+        principalToken.pause();
+
+        bytes memory revertData = abi.encodeWithSignature("EnforcedPause()");
+
+        vm.expectRevert(revertData);
+        principalToken.storeRatesAtExpiry();
+    }
+
+    function testPauseInStoreRatesAtExpiry2() public {
+        vm.expectEmit(false, false, false, true);
+        emit Paused(scriptAdmin);
+        vm.prank(scriptAdmin);
+        principalToken.pause();
+
+        _increaseTimeToExpiry();
+
+        bytes memory revertData = abi.encodeWithSignature("EnforcedPause()");
+
+        vm.expectRevert(revertData);
+        principalToken.storeRatesAtExpiry();
+    }
+
+    function testPauseInFlashloan() public {
+        vm.expectEmit(false, false, false, true);
+        emit Paused(scriptAdmin);
+        vm.prank(scriptAdmin);
+        principalToken.pause();
+
+        bytes memory revertData = abi.encodeWithSignature("EnforcedPause()");
+
+        vm.expectRevert(revertData);
+        principalToken.flashLoan(IERC3156FlashBorrower(MOCK_ADDR_1), address(ibt), 1e18, bytes(""));
+    }
+
+    function testPauseInPTTransfers() public {
+        uint256 amountToDeposit = 1e18;
+        _testDeposit(amountToDeposit, address(this));
+
+        vm.expectEmit(false, false, false, true);
+        emit Paused(scriptAdmin);
+        vm.prank(scriptAdmin);
+        principalToken.pause();
+
+        bytes memory revertData = abi.encodeWithSignature("EnforcedPause()");
+
+        vm.expectRevert(revertData);
+        principalToken.transfer(MOCK_ADDR_1, amountToDeposit);
+
+        principalToken.approve(MOCK_ADDR_1, amountToDeposit);
+
+        vm.prank(MOCK_ADDR_1);
+        vm.expectRevert(revertData);
+        principalToken.transferFrom(address(this), MOCK_ADDR_1, amountToDeposit);
+    }
+
+    function testPauseInYTMintAndBurn() public {
+        uint256 amountToDeposit = 1e18;
+        _testDeposit(amountToDeposit, address(this));
+
+        vm.expectEmit(false, false, false, true);
+        emit Paused(scriptAdmin);
+        vm.prank(scriptAdmin);
+        principalToken.pause();
+
+        bytes memory revertData = abi.encodeWithSignature("EnforcedPause()");
+
+        vm.startPrank(address(principalToken));
+
+        vm.expectRevert(revertData);
+        yt.mint(MOCK_ADDR_1, amountToDeposit);
+
+        vm.expectRevert(revertData);
+        yt.burnWithoutYieldUpdate(address(this), address(this), amountToDeposit);
+
+        vm.stopPrank();
+
+        vm.expectRevert(revertData);
+        yt.burn(amountToDeposit);
+    }
+
+    function testPauseInYTTransfers() public {
+        uint256 amountToDeposit = 1e18;
+        _testDeposit(amountToDeposit, address(this));
+
+        vm.expectEmit(false, false, false, true);
+        emit Paused(scriptAdmin);
+        vm.prank(scriptAdmin);
+        principalToken.pause();
+
+        bytes memory revertData = abi.encodeWithSignature("EnforcedPause()");
+
+        vm.expectRevert(revertData);
+        yt.transfer(MOCK_ADDR_1, amountToDeposit);
+
+        yt.approve(MOCK_ADDR_1, amountToDeposit);
+
+        vm.prank(MOCK_ADDR_1);
+        vm.expectRevert(revertData);
+        yt.transferFrom(address(this), MOCK_ADDR_1, amountToDeposit);
     }
 
     /**
@@ -3369,7 +3957,7 @@ contract ContractPrincipalToken1 is Test {
 
         uint256 underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_1);
         vm.prank(MOCK_ADDR_1);
-        principalToken.claimYield(MOCK_ADDR_1);
+        principalToken.claimYield(MOCK_ADDR_1, 0);
         assertApproxEqAbs(
             underlying.balanceOf(MOCK_ADDR_1),
             underlyingBalanceBefore + ibt.previewRedeem(yieldData.actualYieldUser1),
@@ -3379,7 +3967,7 @@ contract ContractPrincipalToken1 is Test {
 
         underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_2);
         vm.prank(MOCK_ADDR_2);
-        principalToken.claimYield(MOCK_ADDR_2);
+        principalToken.claimYield(MOCK_ADDR_2, 0);
         assertApproxEqAbs(
             underlying.balanceOf(MOCK_ADDR_2),
             underlyingBalanceBefore + ibt.previewRedeem(yieldData.actualYieldUser2),
@@ -3734,7 +4322,7 @@ contract ContractPrincipalToken1 is Test {
         // user1 claims his yield
         uint256 underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_1);
         vm.prank(MOCK_ADDR_1);
-        principalToken.claimYield(MOCK_ADDR_1);
+        principalToken.claimYield(MOCK_ADDR_1, 0);
         assertApproxEqAbs(
             underlying.balanceOf(MOCK_ADDR_1),
             underlyingBalanceBefore + ibt.previewRedeem(yieldData.actualYieldUser1),
@@ -3745,7 +4333,7 @@ contract ContractPrincipalToken1 is Test {
         // user2 claims his yield
         underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_2);
         vm.prank(MOCK_ADDR_2);
-        principalToken.claimYield(MOCK_ADDR_2);
+        principalToken.claimYield(MOCK_ADDR_2, 0);
         assertApproxEqAbs(
             underlying.balanceOf(MOCK_ADDR_2),
             underlyingBalanceBefore + ibt.previewRedeem(yieldData.actualYieldUser2),
@@ -3818,7 +4406,7 @@ contract ContractPrincipalToken1 is Test {
         // user 2 claims his yield
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_2);
         vm.startPrank(MOCK_ADDR_2);
-        principalToken.claimYield(MOCK_ADDR_2);
+        principalToken.claimYield(MOCK_ADDR_2, 0);
         vm.stopPrank();
         assertEq(
             underlying.balanceOf(MOCK_ADDR_2),
@@ -3929,7 +4517,7 @@ contract ContractPrincipalToken1 is Test {
         // user 2 claims his yield
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_2);
         vm.startPrank(MOCK_ADDR_2);
-        principalToken.claimYield(MOCK_ADDR_2);
+        principalToken.claimYield(MOCK_ADDR_2, 0);
         vm.stopPrank();
         assertEq(
             underlying.balanceOf(MOCK_ADDR_2),
@@ -3948,7 +4536,7 @@ contract ContractPrincipalToken1 is Test {
         // user 3 claims his yield
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_3);
         vm.startPrank(MOCK_ADDR_3);
-        principalToken.claimYield(MOCK_ADDR_3);
+        principalToken.claimYield(MOCK_ADDR_3, 0);
         vm.stopPrank();
         assertEq(
             underlying.balanceOf(MOCK_ADDR_3),
@@ -4036,7 +4624,7 @@ contract ContractPrincipalToken1 is Test {
         // user 2 claims his yield
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_2);
         vm.startPrank(MOCK_ADDR_2);
-        principalToken.claimYield(MOCK_ADDR_2);
+        principalToken.claimYield(MOCK_ADDR_2, 0);
         vm.stopPrank();
         assertEq(
             underlying.balanceOf(MOCK_ADDR_2),
@@ -4155,7 +4743,7 @@ contract ContractPrincipalToken1 is Test {
         // user 3 claims his yield (and no additional due to transfer)
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_3);
         vm.startPrank(MOCK_ADDR_3);
-        principalToken.claimYield(MOCK_ADDR_3);
+        principalToken.claimYield(MOCK_ADDR_3, 0);
         vm.stopPrank();
         assertEq(
             underlying.balanceOf(MOCK_ADDR_3),
@@ -4244,7 +4832,7 @@ contract ContractPrincipalToken1 is Test {
         // user 3 claims his yield
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_3);
         vm.startPrank(MOCK_ADDR_3);
-        principalToken.claimYield(MOCK_ADDR_3);
+        principalToken.claimYield(MOCK_ADDR_3, 0);
         vm.stopPrank();
         assertEq(
             underlying.balanceOf(MOCK_ADDR_3),
@@ -4287,7 +4875,7 @@ contract ContractPrincipalToken1 is Test {
         // user 4 claims his yield
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_4);
         vm.startPrank(MOCK_ADDR_4);
-        principalToken.claimYield(MOCK_ADDR_4);
+        principalToken.claimYield(MOCK_ADDR_4, 0);
         vm.stopPrank();
         assertEq(
             underlying.balanceOf(MOCK_ADDR_4),
@@ -4376,7 +4964,7 @@ contract ContractPrincipalToken1 is Test {
         // claimYield for all users
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_1);
         vm.prank(MOCK_ADDR_1);
-        principalToken.claimYield(MOCK_ADDR_1);
+        principalToken.claimYield(MOCK_ADDR_1, 0);
         assertEq(
             underlying.balanceOf(MOCK_ADDR_1),
             yieldData.underlyingBalanceBefore + ibt.previewRedeem(yieldData.actualYieldUser1),
@@ -4391,7 +4979,7 @@ contract ContractPrincipalToken1 is Test {
 
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_2);
         vm.startPrank(MOCK_ADDR_2);
-        principalToken.claimYield(MOCK_ADDR_2);
+        principalToken.claimYield(MOCK_ADDR_2, 0);
         vm.stopPrank();
         assertEq(
             underlying.balanceOf(MOCK_ADDR_2),
@@ -4407,7 +4995,7 @@ contract ContractPrincipalToken1 is Test {
 
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_3);
         vm.startPrank(MOCK_ADDR_3);
-        principalToken.claimYield(MOCK_ADDR_3);
+        principalToken.claimYield(MOCK_ADDR_3, 0);
         vm.stopPrank();
         assertEq(
             underlying.balanceOf(MOCK_ADDR_3),
@@ -4423,7 +5011,7 @@ contract ContractPrincipalToken1 is Test {
 
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_4);
         vm.startPrank(MOCK_ADDR_4);
-        principalToken.claimYield(MOCK_ADDR_4);
+        principalToken.claimYield(MOCK_ADDR_4, 0);
         vm.stopPrank();
         assertEq(
             underlying.balanceOf(MOCK_ADDR_4),
@@ -4507,25 +5095,6 @@ contract ContractPrincipalToken1 is Test {
         principalToken.previewRedeem(1e18);
     }
 
-    /*
-     * @dev Fuzz test of preview redeem in max negative yield condition
-     */
-    function test100NYPreviewRedeemFuzz(uint256 amountToDeposit) public {
-        amountToDeposit = bound(amountToDeposit, 1e16, 1000e18);
-        uint256 redeemShares = amountToDeposit / 2;
-        vm.prank(testUser);
-
-        underlying.approve(address(principalToken), amountToDeposit);
-        principalToken.deposit(amountToDeposit, testUser);
-
-        _increaseRate(-100);
-        _increaseTimeToExpiry();
-        principalToken.storeRatesAtExpiry();
-
-        vm.expectRevert();
-        principalToken.previewRedeem(redeemShares);
-    }
-
     function testRedeemTrivial() public {
         uint256 amountToDeposit = 1e18;
         uint256 expected = _testDeposit(amountToDeposit, address(this));
@@ -4560,19 +5129,19 @@ contract ContractPrincipalToken1 is Test {
         principalToken.unPause();
     }
 
-    function testYTBurnWithoutUpdateFail() public {
-        bytes memory revertData = abi.encodeWithSignature("CallerIsNotPtContract()");
+    function testYTburnWithoutYieldUpdateWithWrongCallerFail() public {
+        bytes memory revertData = abi.encodeWithSignature("UnauthorizedCaller()");
         vm.expectRevert(revertData);
-        yt.burnWithoutUpdate(MOCK_ADDR_1, 1e18);
+        yt.burnWithoutYieldUpdate(MOCK_ADDR_1, MOCK_ADDR_1, 1e18);
     }
 
-    function testYTMintFail() public {
-        bytes memory revertData = abi.encodeWithSignature("CallerIsNotPtContract()");
+    function testYTMintWithWrongCallerFail() public {
+        bytes memory revertData = abi.encodeWithSignature("UnauthorizedCaller()");
         vm.expectRevert(revertData);
         yt.mint(MOCK_ADDR_1, 1e18);
     }
 
-    function testBeforeYtTransferFail() public {
+    function testBeforeYtTransferWithWrongCallerFail() public {
         bytes memory revertData = abi.encodeWithSignature("UnauthorizedCaller()");
         vm.expectRevert(revertData);
         principalToken.beforeYtTransfer(address(this), MOCK_ADDR_1);
@@ -4589,7 +5158,7 @@ contract ContractPrincipalToken1 is Test {
             principalToken.getCurrentYieldOfUserInIBT(address(this))
         );
         uint256 underlyingBalanceBefore = underlying.balanceOf(address(this));
-        principalToken.claimYield(address(this));
+        principalToken.claimYield(address(this), 0);
         assertApproxEqAbs(
             underlyingBalanceBefore + netUserYieldInUnderlying,
             underlying.balanceOf(address(this)),
@@ -4597,7 +5166,7 @@ contract ContractPrincipalToken1 is Test {
             "After claimYield balance is not equal to expected value"
         );
         vm.prank(feeCollector);
-        uint256 actualFees = principalToken.claimFees();
+        uint256 actualFees = principalToken.claimFees(0);
         uint256 feeCollectorBalance = underlying.balanceOf(feeCollector);
         assertEq(actualFees, feeCollectorBalance);
     }
@@ -4617,30 +5186,6 @@ contract ContractPrincipalToken1 is Test {
         bytes memory revertData = abi.encodeWithSignature("InvalidInitialization()");
         vm.expectRevert(revertData);
         yt.initialize("MOCK YieldToken", "MYT", address(newPrincipalToken));
-    }
-
-    function testPrincipalTokenGetters() public {
-        assertEq(address(ibt), principalToken.getIBT(), "IBT getter is wrong");
-        assertEq(
-            type(uint256).max,
-            principalToken.maxDeposit(MOCK_ADDR_1),
-            "maxDeposit method is wrong"
-        );
-        assertEq(0, principalToken.totalSupply(), "totalSupply method is wrong");
-        assertEq(0, principalToken.maxWithdraw(MOCK_ADDR_1), "maxWithdraw method is wrong");
-        assertEq(
-            address(feeCollector),
-            registry.getFeeCollector(),
-            "getFeeCollector method is wrong"
-        );
-        uint256 assets = 100 * (10 ** underlying.decimals());
-        ibtRate = 5e27;
-        uint256 expectedIBT = Math.mulDiv(assets, 1e27, ibtRate);
-        assertEq(
-            expectedIBT,
-            _convertToSharesWithRate(assets, ibtRate, false, false, Math.Rounding.Floor),
-            "convertToSharesWithRate method is wrong"
-        );
     }
 
     /**============ Full cycle tests =============**/
@@ -4690,7 +5235,9 @@ contract ContractPrincipalToken1 is Test {
         user3 = _testYieldUpdate(MOCK_ADDR_3, user3, ptRate, ibtRate, yieldInIBT);
 
         uint256 maxWithdraw = principalToken.maxWithdraw(MOCK_ADDR_3);
+        vm.startPrank(MOCK_ADDR_3);
         _testWithdraw(maxWithdraw, MOCK_ADDR_3, MOCK_ADDR_3);
+        vm.stopPrank();
 
         _increaseRate(25);
 
@@ -4703,7 +5250,9 @@ contract ContractPrincipalToken1 is Test {
         user1 = _testYieldUpdate(MOCK_ADDR_1, user1, ptRate, ibtRate, yieldInIBT);
 
         maxWithdraw = principalToken.maxWithdraw(MOCK_ADDR_1);
+        vm.startPrank(MOCK_ADDR_1);
         _testWithdraw(maxWithdraw, MOCK_ADDR_1, MOCK_ADDR_1);
+        vm.stopPrank();
 
         _increaseTimeToExpiry();
 
@@ -4717,8 +5266,13 @@ contract ContractPrincipalToken1 is Test {
         yieldInIBT = principalToken.getCurrentYieldOfUserInIBT(MOCK_ADDR_5);
         user5 = _testYieldUpdate(MOCK_ADDR_5, user5, ptRate, ibtRate, yieldInIBT);
 
-        _testRedeem(principalToken.balanceOf(MOCK_ADDR_2), MOCK_ADDR_2);
-        _testRedeem(principalToken.balanceOf(MOCK_ADDR_5), MOCK_ADDR_5);
+        vm.startPrank(MOCK_ADDR_2);
+        _testRedeem(principalToken.balanceOf(MOCK_ADDR_2), MOCK_ADDR_2, MOCK_ADDR_2);
+        vm.stopPrank();
+
+        vm.startPrank(MOCK_ADDR_5);
+        _testRedeem(principalToken.balanceOf(MOCK_ADDR_5), MOCK_ADDR_5, MOCK_ADDR_5);
+        vm.stopPrank();
     }
 
     function testFullCycle2() public {
@@ -4766,7 +5320,9 @@ contract ContractPrincipalToken1 is Test {
         user1 = _testYieldUpdate(MOCK_ADDR_1, user1, ptRate, ibtRate, yieldInIBT);
 
         uint256 maxWithdraw = principalToken.maxWithdraw(MOCK_ADDR_1);
+        vm.startPrank(MOCK_ADDR_1);
         _testWithdraw(maxWithdraw, MOCK_ADDR_1, MOCK_ADDR_1);
+        vm.stopPrank();
 
         _testDeposit(3e18, MOCK_ADDR_5);
         (ptRate, ibtRate) = _getPTAndIBTRates();
@@ -4780,7 +5336,9 @@ contract ContractPrincipalToken1 is Test {
         user3 = _testYieldUpdate(MOCK_ADDR_3, user3, ptRate, ibtRate, yieldInIBT);
 
         maxWithdraw = principalToken.maxWithdraw(MOCK_ADDR_3);
+        vm.startPrank(MOCK_ADDR_3);
         _testWithdraw(maxWithdraw, MOCK_ADDR_3, MOCK_ADDR_3);
+        vm.stopPrank();
 
         _increaseTimeToExpiry();
         principalToken.storeRatesAtExpiry();
@@ -4795,8 +5353,13 @@ contract ContractPrincipalToken1 is Test {
         yieldInIBT = principalToken.getCurrentYieldOfUserInIBT(MOCK_ADDR_5);
         user5 = _testYieldUpdate(MOCK_ADDR_5, user5, ptRate, ibtRate, yieldInIBT);
 
-        _testRedeem(principalToken.balanceOf(MOCK_ADDR_2), MOCK_ADDR_2);
-        _testRedeem(principalToken.balanceOf(MOCK_ADDR_5), MOCK_ADDR_5);
+        vm.startPrank(MOCK_ADDR_2);
+        _testRedeem(principalToken.balanceOf(MOCK_ADDR_2), MOCK_ADDR_2, MOCK_ADDR_2);
+        vm.stopPrank();
+
+        vm.startPrank(MOCK_ADDR_5);
+        _testRedeem(principalToken.balanceOf(MOCK_ADDR_5), MOCK_ADDR_5, MOCK_ADDR_5);
+        vm.stopPrank();
     }
 
     function testFullCycle3() public {
@@ -4864,13 +5427,17 @@ contract ContractPrincipalToken1 is Test {
         user1 = _testYieldUpdate(MOCK_ADDR_1, user1, ptRate, ibtRate, yieldInIBT);
 
         uint256 maxWithdraw = principalToken.maxWithdraw(MOCK_ADDR_1);
+        vm.startPrank(MOCK_ADDR_1);
         _testWithdraw(maxWithdraw, MOCK_ADDR_1, MOCK_ADDR_1);
+        vm.stopPrank();
 
         yieldInIBT = principalToken.getCurrentYieldOfUserInIBT(MOCK_ADDR_3);
         user3 = _testYieldUpdate(MOCK_ADDR_3, user3, ptRate, ibtRate, yieldInIBT);
 
         maxWithdraw = principalToken.maxWithdraw(MOCK_ADDR_3);
+        vm.startPrank(MOCK_ADDR_3);
         _testWithdraw(maxWithdraw, MOCK_ADDR_3, MOCK_ADDR_3);
+        vm.stopPrank();
 
         _increaseTimeToExpiry();
         principalToken.storeRatesAtExpiry();
@@ -4886,8 +5453,13 @@ contract ContractPrincipalToken1 is Test {
         yieldInIBT = principalToken.getCurrentYieldOfUserInIBT(MOCK_ADDR_5);
         user5 = _testYieldUpdate(MOCK_ADDR_5, user5, ptRate, ibtRate, yieldInIBT);
 
-        _testRedeem(principalToken.balanceOf(MOCK_ADDR_2), MOCK_ADDR_2);
-        _testRedeem(principalToken.balanceOf(MOCK_ADDR_5), MOCK_ADDR_5);
+        vm.startPrank(MOCK_ADDR_2);
+        _testRedeem(principalToken.balanceOf(MOCK_ADDR_2), MOCK_ADDR_2, MOCK_ADDR_2);
+        vm.stopPrank();
+
+        vm.startPrank(MOCK_ADDR_5);
+        _testRedeem(principalToken.balanceOf(MOCK_ADDR_5), MOCK_ADDR_5, MOCK_ADDR_5);
+        vm.stopPrank();
     }
 
     function testFullCycle4() public {
@@ -4958,10 +5530,14 @@ contract ContractPrincipalToken1 is Test {
         user2 = _testYieldUpdate(MOCK_ADDR_2, user2, ptRate, ibtRate, yieldInIBT);
 
         uint256 maxWithdraw = principalToken.maxWithdraw(MOCK_ADDR_1);
+        vm.startPrank(MOCK_ADDR_1);
         _testWithdraw(maxWithdraw, MOCK_ADDR_1, MOCK_ADDR_1);
+        vm.stopPrank();
 
         maxWithdraw = principalToken.maxWithdraw(MOCK_ADDR_2);
+        vm.startPrank(MOCK_ADDR_2);
         _testWithdraw(maxWithdraw, MOCK_ADDR_2, MOCK_ADDR_2);
+        vm.stopPrank();
 
         _increaseRate(-50);
 
@@ -4978,8 +5554,13 @@ contract ContractPrincipalToken1 is Test {
         yieldInIBT = principalToken.getCurrentYieldOfUserInIBT(MOCK_ADDR_5);
         user5 = _testYieldUpdate(MOCK_ADDR_5, user5, ptRate, ibtRate, yieldInIBT);
 
-        _testRedeem(principalToken.balanceOf(MOCK_ADDR_4), MOCK_ADDR_4);
-        _testRedeem(principalToken.balanceOf(MOCK_ADDR_5), MOCK_ADDR_5);
+        vm.startPrank(MOCK_ADDR_4);
+        _testRedeem(principalToken.balanceOf(MOCK_ADDR_4), MOCK_ADDR_4, MOCK_ADDR_4);
+        vm.stopPrank();
+
+        vm.startPrank(MOCK_ADDR_5);
+        _testRedeem(principalToken.balanceOf(MOCK_ADDR_5), MOCK_ADDR_5, MOCK_ADDR_5);
+        vm.stopPrank();
     }
 
     /**============Fuzz tests begin here=============**/
@@ -5529,11 +6110,11 @@ contract ContractPrincipalToken1 is Test {
     }
 
     /**
-     * @dev Fuzz tests burnWithoutUpdate of YT in various yield conditions.
-     * As opposed to the normal burn, calling burnWithoutUpdate of some YT amount should not update user yield
+     * @dev Fuzz tests burnWithoutYieldUpdate of YT in various yield conditions.
+     * As opposed to the normal burn, calling burnWithoutYieldUpdate of some YT amount should not update user yield
      * and hence erase the user yield generated for this amount since last update.
      */
-    function testBurnWithoutUpdateFuzz(
+    function testburnWithoutYieldUpdateFuzz(
         uint256 amountToDeposit,
         uint256 amountToBurn,
         uint16 _rate
@@ -5551,7 +6132,7 @@ contract ContractPrincipalToken1 is Test {
         _increaseRate(-1 * rate);
 
         vm.prank(address(principalToken));
-        yt.burnWithoutUpdate(address(this), amountToBurn);
+        yt.burnWithoutYieldUpdate(address(this), address(this), amountToBurn);
 
         uint256 ytBalanceAfter = yt.actualBalanceOf(address(this));
         uint256 yieldOfUserInIBTAfter = principalToken.getCurrentYieldOfUserInIBT(address(this));
@@ -5576,7 +6157,7 @@ contract ContractPrincipalToken1 is Test {
         yieldOfUserInIBTBefore = principalToken.getCurrentYieldOfUserInIBT(address(this));
 
         vm.prank(address(principalToken));
-        yt.burnWithoutUpdate(address(this), amountToBurn);
+        yt.burnWithoutYieldUpdate(address(this), address(this), amountToBurn);
 
         ytBalanceAfter = yt.actualBalanceOf(address(this));
         yieldOfUserInIBTAfter = principalToken.getCurrentYieldOfUserInIBT(address(this));
@@ -5609,7 +6190,7 @@ contract ContractPrincipalToken1 is Test {
         yieldOfUserInIBTBefore = principalToken.getCurrentYieldOfUserInIBT(address(this));
 
         vm.prank(address(principalToken));
-        yt.burnWithoutUpdate(address(this), amountToBurn);
+        yt.burnWithoutYieldUpdate(address(this), address(this), amountToBurn);
 
         ytBalanceAfter = yt.actualBalanceOf(address(this));
         yieldOfUserInIBTAfter = principalToken.getCurrentYieldOfUserInIBT(address(this));
@@ -5623,7 +6204,7 @@ contract ContractPrincipalToken1 is Test {
             assertApproxEqAbs(
                 yieldOfUserInIBTBefore.mulDiv(ytBalanceAfter, ytBalanceBefore),
                 yieldOfUserInIBTAfter,
-                ibt.convertToShares(100), // because of safety bound in last else of _computeYield
+                ibt.convertToShares(100), // because of safety bound in last else of computeYield
                 "yield of user in IBT after burn is not equal to expected value"
             );
         }
@@ -5820,7 +6401,9 @@ contract ContractPrincipalToken1 is Test {
         user3 = _testYieldUpdate(MOCK_ADDR_3, user3, ptRate, ibtRate, yieldInIBT);
 
         uint256 maxWithdraw = principalToken.maxWithdraw(MOCK_ADDR_3);
+        vm.startPrank(MOCK_ADDR_3);
         _testWithdraw(maxWithdraw, MOCK_ADDR_3, MOCK_ADDR_3);
+        vm.stopPrank();
 
         _increaseRate(rate2 / 2);
 
@@ -5833,7 +6416,9 @@ contract ContractPrincipalToken1 is Test {
         user1 = _testYieldUpdate(MOCK_ADDR_1, user1, ptRate, ibtRate, yieldInIBT);
 
         maxWithdraw = principalToken.maxWithdraw(MOCK_ADDR_1);
+        vm.startPrank(MOCK_ADDR_1);
         _testWithdraw(maxWithdraw, MOCK_ADDR_1, MOCK_ADDR_1);
+        vm.stopPrank();
 
         _increaseTimeToExpiry();
         principalToken.storeRatesAtExpiry();
@@ -5848,8 +6433,13 @@ contract ContractPrincipalToken1 is Test {
         yieldInIBT = principalToken.getCurrentYieldOfUserInIBT(MOCK_ADDR_5);
         user5 = _testYieldUpdate(MOCK_ADDR_5, user5, ptRate, ibtRate, yieldInIBT);
 
-        _testRedeem(principalToken.balanceOf(MOCK_ADDR_2), MOCK_ADDR_2);
-        _testRedeem(principalToken.balanceOf(MOCK_ADDR_5), MOCK_ADDR_5);
+        vm.startPrank(MOCK_ADDR_2);
+        _testRedeem(principalToken.balanceOf(MOCK_ADDR_2), MOCK_ADDR_2, MOCK_ADDR_2);
+        vm.stopPrank();
+
+        vm.startPrank(MOCK_ADDR_5);
+        _testRedeem(principalToken.balanceOf(MOCK_ADDR_5), MOCK_ADDR_5, MOCK_ADDR_5);
+        vm.stopPrank();
     }
 
     function testMultipleFunctions2Fuzz(
@@ -5906,7 +6496,9 @@ contract ContractPrincipalToken1 is Test {
         user1 = _testYieldUpdate(MOCK_ADDR_1, user1, ptRate, ibtRate, yieldInIBT);
 
         uint256 maxWithdraw = principalToken.maxWithdraw(MOCK_ADDR_1);
+        vm.startPrank(MOCK_ADDR_1);
         _testWithdraw(maxWithdraw, MOCK_ADDR_1, MOCK_ADDR_1);
+        vm.stopPrank();
 
         _testDeposit(amountToDeposit1 / 3, MOCK_ADDR_5);
         (ptRate, ibtRate) = _getPTAndIBTRates();
@@ -5920,7 +6512,9 @@ contract ContractPrincipalToken1 is Test {
         user3 = _testYieldUpdate(MOCK_ADDR_3, user3, ptRate, ibtRate, yieldInIBT);
 
         maxWithdraw = principalToken.maxWithdraw(MOCK_ADDR_3);
+        vm.startPrank(MOCK_ADDR_3);
         _testWithdraw(maxWithdraw, MOCK_ADDR_3, MOCK_ADDR_3);
+        vm.stopPrank();
 
         _increaseTimeToExpiry();
         principalToken.storeRatesAtExpiry();
@@ -5935,8 +6529,13 @@ contract ContractPrincipalToken1 is Test {
         yieldInIBT = principalToken.getCurrentYieldOfUserInIBT(MOCK_ADDR_5);
         user5 = _testYieldUpdate(MOCK_ADDR_5, user5, ptRate, ibtRate, yieldInIBT);
 
-        _testRedeem(principalToken.balanceOf(MOCK_ADDR_2), MOCK_ADDR_2);
-        _testRedeem(principalToken.balanceOf(MOCK_ADDR_5), MOCK_ADDR_5);
+        vm.startPrank(MOCK_ADDR_2);
+        _testRedeem(principalToken.balanceOf(MOCK_ADDR_2), MOCK_ADDR_2, MOCK_ADDR_2);
+        vm.stopPrank();
+
+        vm.startPrank(MOCK_ADDR_5);
+        _testRedeem(principalToken.balanceOf(MOCK_ADDR_5), MOCK_ADDR_5, MOCK_ADDR_5);
+        vm.stopPrank();
     }
 
     function testMultipleFunctions3Fuzz(
@@ -6015,13 +6614,17 @@ contract ContractPrincipalToken1 is Test {
         user1 = _testYieldUpdate(MOCK_ADDR_1, user1, ptRate, ibtRate, yieldInIBT);
 
         uint256 maxWithdraw = principalToken.maxWithdraw(MOCK_ADDR_1);
+        vm.startPrank(MOCK_ADDR_1);
         _testWithdraw(maxWithdraw, MOCK_ADDR_1, MOCK_ADDR_1);
+        vm.stopPrank();
 
         yieldInIBT = principalToken.getCurrentYieldOfUserInIBT(MOCK_ADDR_3);
         user3 = _testYieldUpdate(MOCK_ADDR_3, user3, ptRate, ibtRate, yieldInIBT);
 
         maxWithdraw = principalToken.maxWithdraw(MOCK_ADDR_3);
+        vm.startPrank(MOCK_ADDR_3);
         _testWithdraw(maxWithdraw, MOCK_ADDR_3, MOCK_ADDR_3);
+        vm.stopPrank();
 
         _increaseTimeToExpiry();
         principalToken.storeRatesAtExpiry();
@@ -6036,8 +6639,13 @@ contract ContractPrincipalToken1 is Test {
         yieldInIBT = principalToken.getCurrentYieldOfUserInIBT(MOCK_ADDR_5);
         user5 = _testYieldUpdate(MOCK_ADDR_5, user5, ptRate, ibtRate, yieldInIBT);
 
-        _testRedeem(principalToken.balanceOf(MOCK_ADDR_2), MOCK_ADDR_2);
-        _testRedeem(principalToken.balanceOf(MOCK_ADDR_5), MOCK_ADDR_5);
+        vm.startPrank(MOCK_ADDR_2);
+        _testRedeem(principalToken.balanceOf(MOCK_ADDR_2), MOCK_ADDR_2, MOCK_ADDR_2);
+        vm.stopPrank();
+
+        vm.startPrank(MOCK_ADDR_5);
+        _testRedeem(principalToken.balanceOf(MOCK_ADDR_5), MOCK_ADDR_5, MOCK_ADDR_5);
+        vm.stopPrank();
     }
 
     function testMultipleFunctions4Fuzz(
@@ -6117,10 +6725,14 @@ contract ContractPrincipalToken1 is Test {
         user2 = _testYieldUpdate(MOCK_ADDR_2, user2, ptRate, ibtRate, yieldInIBT);
 
         uint256 maxWithdraw = principalToken.maxWithdraw(MOCK_ADDR_1);
+        vm.startPrank(MOCK_ADDR_1);
         _testWithdraw(maxWithdraw, MOCK_ADDR_1, MOCK_ADDR_1);
+        vm.stopPrank();
 
         maxWithdraw = principalToken.maxWithdraw(MOCK_ADDR_2);
+        vm.startPrank(MOCK_ADDR_2);
         _testWithdraw(maxWithdraw, MOCK_ADDR_2, MOCK_ADDR_2);
+        vm.stopPrank();
 
         _increaseRate(-1 * (rate2));
 
@@ -6138,8 +6750,13 @@ contract ContractPrincipalToken1 is Test {
         yieldInIBT = principalToken.getCurrentYieldOfUserInIBT(MOCK_ADDR_5);
         user5 = _testYieldUpdate(MOCK_ADDR_5, user5, ptRate, ibtRate, yieldInIBT);
 
-        _testRedeem(principalToken.balanceOf(MOCK_ADDR_4), MOCK_ADDR_4);
-        _testRedeem(principalToken.balanceOf(MOCK_ADDR_5), MOCK_ADDR_5);
+        vm.startPrank(MOCK_ADDR_4);
+        _testRedeem(principalToken.balanceOf(MOCK_ADDR_4), MOCK_ADDR_4, MOCK_ADDR_4);
+        vm.stopPrank();
+
+        vm.startPrank(MOCK_ADDR_5);
+        _testRedeem(principalToken.balanceOf(MOCK_ADDR_5), MOCK_ADDR_5, MOCK_ADDR_5);
+        vm.stopPrank();
     }
 
     /**===Redeem Fuzz Test==**/
@@ -6242,6 +6859,22 @@ contract ContractPrincipalToken1 is Test {
         }
     }
 
+    function test100NYPreviewRedeemFuzz(uint256 amountToDeposit) public {
+        amountToDeposit = bound(amountToDeposit, 1e16, 1000e18);
+        uint256 redeemShares = amountToDeposit / 2;
+        vm.prank(testUser);
+
+        underlying.approve(address(principalToken), amountToDeposit);
+        principalToken.deposit(amountToDeposit, testUser);
+
+        _increaseRate(-100);
+        _increaseTimeToExpiry();
+        principalToken.storeRatesAtExpiry();
+
+        vm.expectRevert();
+        principalToken.previewRedeem(redeemShares);
+    }
+
     function testRedeemTrivialFuzz(uint256 amount) public {
         amount = bound(amount, 0, 100000e18);
         uint256 expected = _testDeposit(amount, MOCK_ADDR_1);
@@ -6262,25 +6895,67 @@ contract ContractPrincipalToken1 is Test {
         );
     }
 
+    function testRedeemFuzz(uint256 amountToDeposit) public {
+        amountToDeposit = bound(amountToDeposit, 1e18, 1_000_000e18);
+        _testDeposit(amountToDeposit, address(this));
+
+        _testRedeem(amountToDeposit / 2, MOCK_ADDR_1, address(this));
+    }
+
+    function testRedeemOnBehalfBeforeExpiryFuzz(
+        uint256 amountToDeposit,
+        uint256 amountToRedeem
+    ) public {
+        amountToDeposit = bound(amountToDeposit, 1e18, 1_000_000e18);
+        amountToRedeem = bound(amountToRedeem, 0, amountToDeposit);
+
+        underlying.approve(address(principalToken), amountToDeposit);
+        principalToken.deposit(amountToDeposit, testUser);
+
+        principalToken.approve(MOCK_ADDR_1, amountToDeposit);
+        yt.approve(MOCK_ADDR_1, amountToDeposit);
+
+        vm.startPrank(MOCK_ADDR_1);
+        _testRedeem(amountToDeposit, MOCK_ADDR_1, testUser);
+    }
+
+    function testRedeemOnBehalfAfterExpiryFuzz(
+        uint256 amountToDeposit,
+        uint256 amountToRedeem
+    ) public {
+        amountToDeposit = bound(amountToDeposit, 1e18, 1_000_000e18);
+        amountToRedeem = bound(amountToRedeem, 0, amountToDeposit);
+
+        underlying.approve(address(principalToken), amountToDeposit);
+        principalToken.deposit(amountToDeposit, testUser);
+
+        _increaseTimeToExpiry();
+
+        principalToken.approve(MOCK_ADDR_1, amountToDeposit);
+        // no approval needed for YT as it will not be burnt after expiry
+
+        vm.startPrank(MOCK_ADDR_1);
+        _testRedeem(amountToDeposit, MOCK_ADDR_1, testUser);
+    }
+
     function testRedeemFailFuzz(uint256 amountToDeposit, uint256 amountToRedeem) public {
         amountToDeposit = bound(amountToDeposit, 1, 100_000e18);
         amountToRedeem = bound(amountToRedeem, amountToDeposit + 1, 200_000e18);
 
         _testDeposit(amountToDeposit, MOCK_ADDR_1);
-        bytes memory revertData = abi.encodeWithSignature("UnauthorizedCaller()");
+        bytes memory revertData = abi.encodeWithSelector(
+            bytes4(keccak256("ERC20InsufficientAllowance(address,uint256,uint256)")),
+            testUser,
+            0,
+            amountToDeposit
+        );
         vm.expectRevert(revertData);
         principalToken.redeem(amountToDeposit, MOCK_ADDR_2, MOCK_ADDR_1);
+
         vm.prank(MOCK_ADDR_1);
-        revertData = abi.encodeWithSignature("UnsufficientBalance()");
+        revertData = abi.encodeWithSignature("InsufficientBalance()");
         vm.expectRevert(revertData);
         principalToken.redeem(amountToRedeem, MOCK_ADDR_2, MOCK_ADDR_1);
-    }
-
-    function testRedeemFuzz(uint256 amountToDeposit) public {
-        amountToDeposit = bound(amountToDeposit, 1e18, 1_000_000e18);
-        _testDeposit(amountToDeposit, address(this));
-
-        _testWithdraw(amountToDeposit / 100, MOCK_ADDR_1, address(this));
     }
 
     function testRedeem1Fuzz(uint256 amountToDeposit, uint16 _rate) public {
@@ -6380,7 +7055,7 @@ contract ContractPrincipalToken1 is Test {
         principalToken.transfer(address(this), amount);
         vm.stopPrank();
 
-        _testRedeem(principalToken.maxRedeem(address(this)) / 2, address(this));
+        _testRedeem(principalToken.maxRedeem(address(this)) / 2, address(this), address(this));
         _testRedeemMaxAndClaimYield(MOCK_ADDR_1, MOCK_ADDR_1);
 
         _testDeposit(amountToDeposit * 2, address(this));
@@ -6462,7 +7137,7 @@ contract ContractPrincipalToken1 is Test {
 
         yt.transfer(MOCK_ADDR_1, yt.actualBalanceOf(address(this)));
         principalToken.transfer(MOCK_ADDR_1, principalToken.balanceOf(address(this)));
-        principalToken.claimYield(address(this));
+        principalToken.claimYield(address(this), 0);
 
         _testRedeemMaxAndClaimYield(MOCK_ADDR_1, address(this));
     }
@@ -6477,7 +7152,7 @@ contract ContractPrincipalToken1 is Test {
 
         _increaseRate(rate1);
 
-        principalToken.claimYield(address(this));
+        principalToken.claimYield(address(this), 0);
 
         _increaseRate(-1 * rate2);
 
@@ -6492,7 +7167,9 @@ contract ContractPrincipalToken1 is Test {
         _testDeposit(amountToDeposit, MOCK_ADDR_2);
 
         // user1 redeems all shares before any yield has been generated
-        _testRedeem(receivedShares1, MOCK_ADDR_1);
+        vm.startPrank(MOCK_ADDR_1);
+        _testRedeem(receivedShares1, MOCK_ADDR_1, MOCK_ADDR_1);
+        vm.stopPrank();
 
         _increaseRate(rate);
 
@@ -6504,7 +7181,7 @@ contract ContractPrincipalToken1 is Test {
             registry.getYieldFee()
         );
         vm.prank(MOCK_ADDR_2);
-        uint256 actualYield = principalToken.claimYield(MOCK_ADDR_2);
+        uint256 actualYield = principalToken.claimYield(MOCK_ADDR_2, 0);
         assertApproxEqAbs(
             expectedYield,
             actualYield,
@@ -6528,7 +7205,9 @@ contract ContractPrincipalToken1 is Test {
 
         // user1 deposits then redeems all shares before any yield has been generated
         uint256 receivedShares1 = _testDeposit(amountToDeposit, MOCK_ADDR_1);
-        _testRedeem(receivedShares1, MOCK_ADDR_1);
+        vm.startPrank(MOCK_ADDR_1);
+        _testRedeem(receivedShares1, MOCK_ADDR_1, MOCK_ADDR_1);
+        vm.stopPrank();
 
         _increaseRate(rate);
 
@@ -6540,7 +7219,7 @@ contract ContractPrincipalToken1 is Test {
             registry.getYieldFee()
         );
         vm.prank(MOCK_ADDR_2);
-        uint256 actualYield = principalToken.claimYield(MOCK_ADDR_2);
+        uint256 actualYield = principalToken.claimYield(MOCK_ADDR_2, 0);
         assertApproxEqAbs(
             expectedYield,
             actualYield,
@@ -6598,7 +7277,7 @@ contract ContractPrincipalToken1 is Test {
         );
 
         vm.startPrank(MOCK_ADDR_1);
-        bytes memory revertData = abi.encodeWithSignature("UnsufficientBalance()");
+        bytes memory revertData = abi.encodeWithSignature("InsufficientBalance()");
         vm.expectRevert(revertData);
         principalToken.redeem(shares1 + 1, MOCK_ADDR_1, MOCK_ADDR_1);
         uint256 assets1 = principalToken.redeem(shares1, MOCK_ADDR_1, MOCK_ADDR_1);
@@ -6683,7 +7362,7 @@ contract ContractPrincipalToken1 is Test {
 
         vm.startPrank(MOCK_ADDR_1);
         // test that redeem reverts when trying to redeem more than PT balance
-        bytes memory revertData = abi.encodeWithSignature("UnsufficientBalance()");
+        bytes memory revertData = abi.encodeWithSignature("InsufficientBalance()");
         vm.expectRevert(revertData);
         principalToken.redeem(shares1 + 1, MOCK_ADDR_1, MOCK_ADDR_1);
         uint256 assets1 = principalToken.redeem(shares1, MOCK_ADDR_1, MOCK_ADDR_1);
@@ -6731,6 +7410,31 @@ contract ContractPrincipalToken1 is Test {
         }
     }
 
+    function test100NYRedeemFuzz(uint256 amountToDeposit) public {
+        amountToDeposit = bound(amountToDeposit, 1e16, 1000e18);
+        uint256 redeemShares = amountToDeposit / 2;
+        vm.prank(testUser);
+
+        underlying.approve(address(principalToken), amountToDeposit);
+        principalToken.deposit(amountToDeposit, testUser);
+
+        _increaseRate(-100);
+        _increaseTimeToExpiry();
+        principalToken.storeRatesAtExpiry();
+
+        vm.expectRevert();
+        principalToken.redeem(redeemShares, testUser, testUser);
+    }
+
+    function testMaxRedeemFuzz(uint256 amountToDeposit) public {
+        amountToDeposit = bound(amountToDeposit, 1e18, 1000e18);
+        uint256 expected1 = _testDeposit(amountToDeposit, address(this));
+        uint256 actual = principalToken.maxRedeem(address(this));
+        assertEq(expected1, actual, "Max redeem balance is not equal to expected value");
+        _increaseTimeToExpiry();
+        assertEq(expected1, actual, "Max redeem balance is not equal to expected value");
+    }
+
     function testClaimYieldWhenYieldZeroFuzz(uint256 amountToDeposit) public {
         amountToDeposit = bound(amountToDeposit, 1e18, 1000e18);
         uint256 expectedIBT = ibt.convertToShares(amountToDeposit);
@@ -6739,7 +7443,7 @@ contract ContractPrincipalToken1 is Test {
         assertEq(expected, actual, "After deposit balance is not equal to expected value");
 
         uint256 underlyingBalanceBefore = underlying.balanceOf(address(this));
-        principalToken.claimYield(address(this));
+        principalToken.claimYield(address(this), 0);
         uint256 underlyingBalanceAfter = underlying.balanceOf(address(this));
         assertEq(
             underlyingBalanceBefore,
@@ -6759,7 +7463,7 @@ contract ContractPrincipalToken1 is Test {
         _increaseRate(-1 * rate);
 
         uint256 underlyingBalanceBefore = underlying.balanceOf(address(this));
-        principalToken.claimYield(address(this));
+        principalToken.claimYield(address(this), 0);
         uint256 underlyingBalanceAfter = underlying.balanceOf(address(this));
         assertEq(
             underlyingBalanceBefore,
@@ -6775,36 +7479,12 @@ contract ContractPrincipalToken1 is Test {
 
         _increaseRate(rate1);
 
-        principalToken.claimYield(address(this));
+        principalToken.claimYield(address(this), 0);
 
         _increaseRate(-100);
 
         vm.expectRevert();
-        principalToken.claimYield(address(this));
-    }
-
-    function testMaxRedeemFuzz(uint256 amountToDeposit) public {
-        amountToDeposit = bound(amountToDeposit, 1e18, 1000e18);
-        uint256 expected1 = _testDeposit(amountToDeposit, address(this));
-        uint256 actual = principalToken.maxRedeem(address(this));
-        assertEq(expected1, actual, "Max redeem balance is not equal to expected value");
-        _increaseTimeToExpiry();
-        assertEq(expected1, actual, "Max redeem balance is not equal to expected value");
-    }
-
-    function testWithdrawFailFuzz(uint256 amountToDeposit) public {
-        amountToDeposit = bound(amountToDeposit, 1e18, 100e18);
-
-        _testDeposit(amountToDeposit, address(this));
-
-        bytes memory revertData = abi.encodeWithSignature("UnauthorizedCaller()");
-        vm.expectRevert(revertData);
-        vm.prank(MOCK_ADDR_1);
-        principalToken.withdraw(amountToDeposit, MOCK_ADDR_1, address(this));
-
-        revertData = abi.encodeWithSignature("UnsufficientBalance()");
-        vm.expectRevert(revertData);
-        principalToken.withdraw(amountToDeposit * 10, MOCK_ADDR_1, address(this));
+        principalToken.claimYield(address(this), 0);
     }
 
     function testClaimFees2Fuzz(uint256 amount, uint16 _rate) public {
@@ -6821,7 +7501,7 @@ contract ContractPrincipalToken1 is Test {
         );
         uint256 underlyingBalanceBefore = underlying.balanceOf(address(this));
 
-        principalToken.claimYield(address(this));
+        principalToken.claimYield(address(this), 0);
         assertApproxEqAbs(
             underlyingBalanceBefore + netUserYieldInUnderlying,
             underlying.balanceOf(address(this)),
@@ -6829,7 +7509,7 @@ contract ContractPrincipalToken1 is Test {
             "After withdraw balance is not equal to expected value"
         );
         vm.prank(feeCollector);
-        uint256 actualFees = principalToken.claimFees();
+        uint256 actualFees = principalToken.claimFees(0);
         uint256 feeCollectorBalance = underlying.balanceOf(feeCollector);
         assertEq(actualFees, feeCollectorBalance);
     }
@@ -6924,6 +7604,51 @@ contract ContractPrincipalToken1 is Test {
         assertEq(maxWithdraw2, maxWithdraw1, "maxWithdraw is wrong");
     }
 
+    function testWithdrawFuzz(uint256 amount) public {
+        amount = bound(amount, 1e18, 1_000_000e18);
+        _testDeposit(amount, testUser);
+
+        _testWithdraw(amount / 2, testUser, testUser);
+    }
+
+    function test100NYWithdrawFuzz(uint256 amountToDeposit) public {
+        amountToDeposit = bound(amountToDeposit, 1e16, 1000e18);
+        uint256 amountToWithdraw = amountToDeposit / 2;
+        vm.prank(testUser);
+
+        underlying.approve(address(principalToken), amountToDeposit);
+        principalToken.deposit(amountToDeposit, testUser);
+
+        _increaseRate(-100);
+
+        vm.expectRevert();
+        principalToken.withdraw(amountToWithdraw, MOCK_ADDR_1, testUser);
+    }
+
+    function testWithdrawOnBehalfBeforeExpiryFuzz(uint256 amountToDeposit) public {
+        amountToDeposit = bound(amountToDeposit, 1e18, 1_000_000e18);
+        _testDeposit(amountToDeposit, testUser);
+
+        principalToken.approve(MOCK_ADDR_1, amountToDeposit / 2);
+        yt.approve(MOCK_ADDR_1, amountToDeposit / 2);
+
+        vm.startPrank(MOCK_ADDR_1);
+        _testWithdraw(amountToDeposit / 2, MOCK_ADDR_1, testUser);
+    }
+
+    function testWithdrawOnBehalfAfterExpiryFuzz(uint256 amountToDeposit) public {
+        amountToDeposit = bound(amountToDeposit, 1e18, 1_000_000e18);
+        _testDeposit(amountToDeposit, testUser);
+
+        _increaseTimeToExpiry();
+
+        principalToken.approve(MOCK_ADDR_1, amountToDeposit / 2);
+        // no approval needed for YT as it will not be burnt after expiry
+
+        vm.startPrank(MOCK_ADDR_1);
+        _testWithdraw(amountToDeposit / 2, MOCK_ADDR_1, testUser);
+    }
+
     function testMaxWithdrawFuzz(uint256 amount) public {
         amount = bound(amount, 0, 100_000_000e18);
         _testDeposit(amount, MOCK_ADDR_1);
@@ -6941,6 +7666,26 @@ contract ContractPrincipalToken1 is Test {
             _amountMinusFee(amount, registry.getTokenizationFee()),
             "Max withdraw amount is not equal to expected value"
         );
+    }
+
+    function testWithdrawFailFuzz(uint256 amountToDeposit) public {
+        amountToDeposit = bound(amountToDeposit, 1e18, 100e18);
+
+        _testDeposit(amountToDeposit, MOCK_ADDR_1);
+
+        bytes memory revertData = abi.encodeWithSelector(
+            bytes4(keccak256("ERC20InsufficientAllowance(address,uint256,uint256)")),
+            testUser,
+            0,
+            amountToDeposit
+        );
+        vm.expectRevert(revertData);
+        principalToken.withdraw(amountToDeposit, MOCK_ADDR_2, MOCK_ADDR_1);
+
+        vm.prank(MOCK_ADDR_1);
+        revertData = abi.encodeWithSignature("InsufficientBalance()");
+        vm.expectRevert(revertData);
+        principalToken.withdraw(amountToDeposit * 10, MOCK_ADDR_1, address(this));
     }
 
     function testStoreAndGetRatesAfterExpiryFuzz(uint16 _rate) public {
@@ -7216,7 +7961,6 @@ contract ContractPrincipalToken1 is Test {
         data.ptBalanceBefore = principalToken.balanceOf(owner);
         data.ytBalanceBefore = yt.actualBalanceOf(owner);
         data.expectedIBT = ibt.convertToShares(amount);
-        vm.prank(owner);
         uint256 shares = principalToken.withdraw(amount, receiver, owner);
         data.totalAssetsAfter = principalToken.totalAssets();
         data.underlyingBalanceAfter = underlying.balanceOf(receiver);
@@ -7254,24 +7998,32 @@ contract ContractPrincipalToken1 is Test {
             data.ptBalanceBefore,
             data.ptBalanceAfter + shares,
             1000,
-            "After withdraw, PT balance is wrong"
+            "After withdraw, PT balance of owner is wrong"
         );
         assertGe(
             data.ptBalanceBefore,
             data.ptBalanceAfter + shares,
             "not all shares have been burned"
         );
-        assertApproxEqAbs(
-            data.ytBalanceBefore,
-            data.ytBalanceAfter + shares,
-            1000,
-            "After withdraw, YT balance is wrong"
-        );
-        assertGe(
-            data.ytBalanceBefore,
-            data.ytBalanceAfter + shares,
-            "not all shares have been burned"
-        );
+        if (block.timestamp < principalToken.maturity()) {
+            assertApproxEqAbs(
+                data.ytBalanceBefore,
+                data.ytBalanceAfter + shares,
+                1000,
+                "After withdraw, YT balance of owner is wrong"
+            );
+            assertGe(
+                data.ytBalanceBefore,
+                data.ytBalanceAfter + shares,
+                "Not all shares have been burned"
+            );
+        } else {
+            assertEq(
+                data.ytBalanceAfter,
+                data.ytBalanceBefore,
+                "After redeem, YT balance of owner is wrong"
+            );
+        }
     }
 
     /**
@@ -7299,7 +8051,7 @@ contract ContractPrincipalToken1 is Test {
         if (expectedAssets > 0) {
             vm.startPrank(owner);
             uint256 assets = principalToken.redeem(data.maxRedeem, receiver, owner);
-            assets += principalToken.claimYield(receiver);
+            assets += principalToken.claimYield(receiver, 0);
             vm.stopPrank();
 
             data.totalAssetsAfter = principalToken.totalAssets();
@@ -7363,27 +8115,25 @@ contract ContractPrincipalToken1 is Test {
         }
     }
 
-    function _testRedeem(uint256 shares, address user) internal {
+    function _testRedeem(uint256 shares, address receiver, address owner) internal {
         DepositWithdrawRedeemData memory data;
 
         data.totalAssetsBefore = principalToken.totalAssets();
-        data.underlyingBalanceBefore = underlying.balanceOf(user);
-        data.ptBalanceBefore = principalToken.balanceOf(user);
-        data.ytBalanceBefore = yt.actualBalanceOf(user);
+        data.underlyingBalanceBefore = underlying.balanceOf(receiver);
+        data.ptBalanceBefore = principalToken.balanceOf(owner);
+        data.ytBalanceBefore = yt.actualBalanceOf(owner);
         data.ibtBalPTContractBefore = ibt.balanceOf(address(principalToken));
 
         uint256 expectedAssets = principalToken.previewRedeem(shares);
         uint256 expectedAssetsInIBT = ibt.convertToShares(expectedAssets);
 
         if (expectedAssets > 0) {
-            vm.startPrank(user);
-            uint256 assets = principalToken.redeem(shares, user, user);
-            vm.stopPrank();
+            uint256 assets = principalToken.redeem(shares, receiver, owner);
 
             data.totalAssetsAfter = principalToken.totalAssets();
-            data.underlyingBalanceAfter = underlying.balanceOf(user);
-            data.ptBalanceAfter = principalToken.balanceOf(user);
-            data.ytBalanceAfter = yt.actualBalanceOf(user);
+            data.underlyingBalanceAfter = underlying.balanceOf(receiver);
+            data.ptBalanceAfter = principalToken.balanceOf(owner);
+            data.ytBalanceAfter = yt.actualBalanceOf(owner);
             data.ibtBalPTContractAfter = ibt.balanceOf(address(principalToken));
 
             assertApproxEqAbs(
@@ -7501,7 +8251,7 @@ contract ContractPrincipalToken1 is Test {
         uint256 unclaimedFeesBefore = principalToken.getUnclaimedFeesInIBT();
         uint256 userYield = principalToken.getCurrentYieldOfUserInIBT(user);
         vm.prank(user);
-        uint256 assets = principalToken.claimYield(user);
+        uint256 assets = principalToken.claimYield(user, 0);
         uint256 ibtBalPTContractAfter = ibt.balanceOf(address(principalToken));
         uint256 assetBalanceAfter = underlying.balanceOf(user);
         uint256 unclaimedFeesAfter = principalToken.getUnclaimedFeesInIBT();
@@ -7646,12 +8396,9 @@ contract ContractPrincipalToken1 is Test {
         bool toRay,
         Math.Rounding rounding
     ) internal view returns (uint256 shares) {
-        shares = PrincipalTokenUtil._convertToSharesWithRate(
-            fromRay ? assets : assets.toRay(18),
-            rate,
-            toRay ? IBT_UNIT.toRay(18) : IBT_UNIT,
-            rounding
-        );
+        uint256 _assets = fromRay ? assets : assets.toRay(18);
+        uint256 _ibtUnit = toRay ? IBT_UNIT.toRay(18) : IBT_UNIT;
+        shares = _assets.mulDiv(_ibtUnit, rate, rounding);
     }
 
     function _convertToAssetsWithRate(
@@ -7661,12 +8408,8 @@ contract ContractPrincipalToken1 is Test {
         bool toRay,
         Math.Rounding rounding
     ) internal view returns (uint256 assets) {
-        assets = PrincipalTokenUtil._convertToAssetsWithRate(
-            shares,
-            rate,
-            fromRay ? IBT_UNIT.toRay(18) : IBT_UNIT,
-            rounding
-        );
+        uint256 _ibtUnit = fromRay ? IBT_UNIT.toRay(18) : IBT_UNIT;
+        assets = shares.mulDiv(rate, _ibtUnit, rounding);
         if (!toRay) {
             assets = assets.fromRay(18);
         }

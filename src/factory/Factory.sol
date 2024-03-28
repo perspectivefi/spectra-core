@@ -16,6 +16,11 @@ import "../interfaces/IRegistry.sol";
 import "../libraries/CurvePoolUtil.sol";
 import "../libraries/Roles.sol";
 
+/**
+ * @title PrincipalTokenUtil library
+ * @author Spectra Finance
+ * @notice Factory used to deploy PTs and pools.
+ */
 contract Factory is IFactory, AccessManagedUpgradeable {
     using SafeERC20 for IERC20;
     using Math for uint256;
@@ -26,12 +31,15 @@ contract Factory is IFactory, AccessManagedUpgradeable {
         IPrincipalToken(address(0)).setRewardsProxy.selector;
     bytes4 constant CLAIM_REWARDS_SELECTOR = IPrincipalToken(address(0)).claimRewards.selector;
 
+    /** @notice registry of the protocol */
     address private immutable registry;
+    /** @notice address provider of Curve protocol, used to obtain address of Curve Factory */
     address private immutable curveAddressProvider;
 
     /* State
      *****************************************************************************************************************/
 
+    /** @notice Factory of Curve protocol, used to deploy pools */
     address private curveFactory;
 
     /* Events

@@ -9,15 +9,23 @@ import {RayMath} from "../libraries/RayMath.sol";
 import {IRouter} from "../interfaces/IRouter.sol";
 import {Dispatcher} from "./Dispatcher.sol";
 
+/**
+ * @title Router contract
+ * @author Spectra Finance
+ * @notice Handles executions of complex sequences of actions in the Spectra protocol.
+ */
 contract Router is Dispatcher, IRouter, IERC3156FlashBorrower {
     using SafeERC20 for IERC20;
     using Math for uint256;
 
     /**
-     * @notice Maximum amount of tokens for which balance can be tracked in _previewRate()
+     * @dev Maximum amount of tokens for which balance can be tracked in _previewRate()
      */
     uint256 private constant MAX_INVOLVED_TOKENS = 30;
 
+    /**
+     * @dev expected return value from borrowers onFlashLoan function
+     */
     bytes32 private immutable ON_FLASH_LOAN = keccak256("ERC3156FlashBorrower.onFlashLoan");
 
     modifier checkDeadline(uint256 deadline) {

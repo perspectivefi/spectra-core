@@ -65,6 +65,10 @@ contract AMTransparentUpgradeableProxy is ERC1967Proxy {
     address private immutable _admin;
 
     /**
+     * @dev The initial authority is not a valid account. (eg. `address(0)`)
+     */
+    error AMInvalidInitialAuthority(address initialAuthority);
+    /**
      * @dev The proxy caller is the current admin, and can't fallback to the proxy target.
      */
     error ProxyDeniedAdminAccess();
@@ -79,10 +83,9 @@ contract AMTransparentUpgradeableProxy is ERC1967Proxy {
         address initialAuthority,
         bytes memory _data
     ) payable ERC1967Proxy(_logic, _data) {
-        require(
-            initialAuthority != address(0),
-            "AMTransparentUpgradeableProxy: initialAuthority is zero address"
-        );
+        if (initialAuthority == address(0)) {
+            revert AMInvalidInitialAuthority(address(0));
+        }
         _admin = address(new AMProxyAdmin(initialAuthority));
         // Set the storage value and emit an event for ERC-1967 compatibility
         ERC1967Utils.changeAdmin(_proxyAdmin());

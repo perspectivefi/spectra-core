@@ -20,6 +20,7 @@ import "src/libraries/RayMath.sol";
 import "openzeppelin-contracts/proxy/beacon/UpgradeableBeacon.sol";
 
 contract ContractPrincipalToken3 is Test {
+    using Math for uint256;
     using RayMath for uint256;
     /* STRUCTS */
     struct DepositWithdrawRedeemData {
@@ -1225,7 +1226,7 @@ contract ContractPrincipalToken3 is Test {
 
         // user 2 calls claimYield
         vm.startPrank(TEST_USER_2);
-        principalToken.claimYield(TEST_USER_2);
+        principalToken.claimYield(TEST_USER_2, 0);
         vm.stopPrank();
 
         usersData.underlyingBalanceTestUser1_2 = underlying.balanceOf(TEST_USER_1);
@@ -1567,7 +1568,7 @@ contract ContractPrincipalToken3 is Test {
         uint256 unclaimedFees = principalToken.getUnclaimedFeesInIBT();
         assertEq(totFees, unclaimedFees, "nothing was claimed yet");
         vm.prank(registry.getFeeCollector());
-        principalToken.claimFees();
+        principalToken.claimFees(0);
         assertApproxEqAbs(
             totFees,
             ibt.previewDeposit((amount * 2 * TOKENIZATION_FEE) / 1e18),
@@ -3445,7 +3446,7 @@ contract ContractPrincipalToken3 is Test {
 
         if (expectedAssets > 0) {
             assets = principalToken.redeem(data.maxRedeem, receiver, sender);
-            assets += principalToken.claimYield(receiver);
+            assets += principalToken.claimYield(receiver, 0);
 
             data.underlyingBalanceReceiverAfter = underlying.balanceOf(receiver);
             data.ptBalanceSenderAfter = principalToken.balanceOf(sender);
@@ -3528,7 +3529,7 @@ contract ContractPrincipalToken3 is Test {
         uint256 rate,
         Math.Rounding rounding
     ) internal view returns (uint256 shares) {
-        return PrincipalTokenUtil._convertToSharesWithRate(assets, rate, IBT_UNIT, rounding);
+        shares = assets.mulDiv(IBT_UNIT, rate, rounding);
     }
 
     function _convertToAssetsWithRate(
@@ -3536,6 +3537,6 @@ contract ContractPrincipalToken3 is Test {
         uint256 rate,
         Math.Rounding rounding
     ) internal view returns (uint256 assets) {
-        return PrincipalTokenUtil._convertToAssetsWithRate(shares, rate, IBT_UNIT, rounding);
+        assets = shares.mulDiv(rate, IBT_UNIT, rounding);
     }
 }

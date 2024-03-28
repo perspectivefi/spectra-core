@@ -448,11 +448,11 @@ abstract contract MockIBTFees is TestPT5095AndDeposit {
 
         // Caller 1 claim yield must not revert
         vm.prank(caller1);
-        IPrincipalToken(_pt_).claimYield(caller1);
+        IPrincipalToken(_pt_).claimYield(caller1, 0);
 
         // Caller 2 claim yield must not revert
         vm.prank(caller2);
-        IPrincipalToken(_pt_).claimYield(caller2);
+        IPrincipalToken(_pt_).claimYield(caller2, 0);
     }
 
     function _updateRateAndCheckYield(
@@ -612,12 +612,9 @@ abstract contract MockIBTFees is TestPT5095AndDeposit {
         bool toRay,
         Math.Rounding rounding
     ) internal view returns (uint256 shares) {
-        shares = PrincipalTokenUtil._convertToSharesWithRate(
-            fromRay ? assets : assets.toRay(18),
-            rate,
-            toRay ? IBT_UNIT.toRay(18) : IBT_UNIT,
-            rounding
-        );
+        uint256 _assets = fromRay ? assets : assets.toRay(18);
+        uint256 _ibtUnit = toRay ? IBT_UNIT.toRay(18) : IBT_UNIT;
+        shares = _assets.mulDiv(_ibtUnit, rate, rounding);
     }
 
     function _convertToAssetsWithRate(
@@ -627,12 +624,8 @@ abstract contract MockIBTFees is TestPT5095AndDeposit {
         bool toRay,
         Math.Rounding rounding
     ) internal view returns (uint256 assets) {
-        assets = PrincipalTokenUtil._convertToAssetsWithRate(
-            shares,
-            rate,
-            fromRay ? IBT_UNIT.toRay(18) : IBT_UNIT,
-            rounding
-        );
+        uint256 _ibtUnit = fromRay ? IBT_UNIT.toRay(18) : IBT_UNIT;
+        assets = shares.mulDiv(rate, _ibtUnit, rounding);
         if (!toRay) {
             assets = assets.fromRay(18);
         }

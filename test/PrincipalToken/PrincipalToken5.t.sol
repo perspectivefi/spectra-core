@@ -344,7 +344,7 @@ contract ContractPrincipalToken5 is Test {
     }
 
     function testClaimWithNoProxySetup() public {
-        bytes memory revertData = abi.encodeWithSignature("NoRewardsProxySet()");
+        bytes memory revertData = abi.encodeWithSignature("NoRewardsProxy()");
         vm.expectRevert(revertData);
         bytes memory claimData;
         vm.prank(scriptAdmin);
@@ -391,7 +391,7 @@ contract ContractPrincipalToken5 is Test {
         principalToken.setRewardsProxy(address(0));
 
         // We can't use it anymore
-        bytes memory revertData = abi.encodeWithSignature("NoRewardsProxySet()");
+        bytes memory revertData = abi.encodeWithSignature("NoRewardsProxy()");
         vm.expectRevert(revertData);
         vm.prank(scriptAdmin);
         principalToken.claimRewards(claimData);

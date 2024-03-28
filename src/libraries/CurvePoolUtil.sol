@@ -6,6 +6,11 @@ import "../interfaces/ICurvePool.sol";
 import "../interfaces/IPrincipalToken.sol";
 import "openzeppelin-math/Math.sol";
 
+/**
+ * @title CurvePoolUtil library
+ * @author Spectra Finance
+ * @notice Provides miscellaneous utils for computations related to Curve protocol.
+ */
 library CurvePoolUtil {
     using Math for uint256;
 
@@ -32,9 +37,8 @@ library CurvePoolUtil {
         address _curvePool,
         uint256[2] memory _amounts
     ) external view returns (uint256 minMintAmount) {
-        // The function selector of calc_token_amount(uint256[2]) is 0x8d8ea727
         (bool success, bytes memory responseData) = _curvePool.staticcall(
-            abi.encodeWithSelector(0x8d8ea727, _amounts)
+            abi.encodeCall(ICurvePool(address(0)).calc_token_amount, (_amounts))
         );
         if (!success) {
             revert FailedToFetchExpectedLPTokenAmount();
@@ -79,9 +83,8 @@ library CurvePoolUtil {
         uint256 _lpTokenAmount,
         uint256 _i
     ) external view returns (uint256 minAmount) {
-        // The function selector of calc_withdraw_one_coin(uint256,uint256) is 0x4fb08c5e
         (bool success, bytes memory responseData) = _curvePool.staticcall(
-            abi.encodeWithSelector(0x4fb08c5e, _lpTokenAmount, _i)
+            abi.encodeCall(ICurvePool(address(0)).calc_withdraw_one_coin, (_lpTokenAmount, _i))
         );
         if (!success) {
             revert FailedToFetchExpectedCoinAmount();

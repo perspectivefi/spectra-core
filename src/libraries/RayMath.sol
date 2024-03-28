@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity =0.8.20;
+pragma solidity 0.8.20;
 
 /**
  * @title RayMath library
- * @author Spectra
- * @notice Provides conversions for/to any decimal tokens to/from ray
+ * @author Spectra Finance
+ * @notice Provides conversions for/to any decimal tokens to/from ray.
  * @dev Conversions from Ray are rounded down.
  */
 library RayMath {
     /// @dev 27 decimal unit
     uint256 public constant RAY_UNIT = 1e27;
+    uint256 public constant RAY_DECIMALS = 27;
 
     /**
      * @dev Converts a value from Ray (27-decimal precision) to a representation with a specified number of decimals.
@@ -18,7 +19,7 @@ library RayMath {
      * @return b The amount converted from Ray to the specified decimal precision.
      */
     function fromRay(uint256 _a, uint256 _decimals) internal pure returns (uint256 b) {
-        uint256 decimals_ratio = 10 ** (27 - _decimals);
+        uint256 decimals_ratio = 10 ** (RAY_DECIMALS - _decimals);
         assembly {
             b := div(_a, decimals_ratio)
         }
@@ -37,7 +38,7 @@ library RayMath {
         uint256 _decimals,
         bool _roundUp
     ) internal pure returns (uint256 b) {
-        uint256 decimals_ratio = 10 ** (27 - _decimals);
+        uint256 decimals_ratio = 10 ** (RAY_DECIMALS - _decimals);
         assembly {
             b := div(_a, decimals_ratio)
 
@@ -55,7 +56,7 @@ library RayMath {
      *           Ensures that the conversion maintains the value's integrity (no overflow).
      */
     function toRay(uint256 _a, uint256 _decimals) internal pure returns (uint256 b) {
-        uint256 decimals_ratio = 10 ** (27 - _decimals);
+        uint256 decimals_ratio = 10 ** (RAY_DECIMALS - _decimals);
         // to avoid overflow, b/decimals_ratio == _a
         assembly {
             b := mul(_a, decimals_ratio)

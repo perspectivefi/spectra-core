@@ -909,7 +909,7 @@ contract CustomDecimals is Test {
             vm.warp(block.timestamp + (DURATION / 5));
 
             uint256 ibtBalPTContractBefore = IERC4626(ibt).balanceOf(address(pt));
-            uint256 claimedYieldInIBT = IPrincipalToken(pt).claimYieldInIBT(address(this));
+            uint256 claimedYieldInIBT = IPrincipalToken(pt).claimYieldInIBT(address(this), 0);
             uint256 ibtBalPTContractAfter = IERC4626(ibt).balanceOf(address(pt));
             assertEq(
                 ibtBalPTContractBefore - ibtBalPTContractAfter,
@@ -1052,7 +1052,7 @@ contract CustomDecimals is Test {
 
         // First interaction
         vm.prank(MOCK_ADDR_1);
-        uint256 claimedYield = IPrincipalToken(pt).claimYield(MOCK_ADDR_1);
+        uint256 claimedYield = IPrincipalToken(pt).claimYield(MOCK_ADDR_1, 0);
 
         assertEq(ptRate, IPrincipalToken(pt).getPTRate());
         assertEq(ibtRate, IPrincipalToken(pt).getIBTRate());
@@ -1072,10 +1072,6 @@ contract CustomDecimals is Test {
         assertEq(data.ibts4, IPrincipalToken(pt).maxWithdrawIBT(MOCK_ADDR_4));
         assertEq(ptRate, IPrincipalToken(pt).getPTRate());
         assertEq(ibtRate, IPrincipalToken(pt).getIBTRate());
-
-        vm.startPrank(MOCK_ADDR_3);
-        IERC20(yt).transfer(MOCK_ADDR_1, IERC20(yt).balanceOf(MOCK_ADDR_3));
-        vm.stopPrank();
 
         assertEq(data.ibts1, IPrincipalToken(pt).maxWithdrawIBT(MOCK_ADDR_1));
         assertEq(data.ibts2, IPrincipalToken(pt).maxWithdrawIBT(MOCK_ADDR_2));
@@ -1108,7 +1104,7 @@ contract CustomDecimals is Test {
         assertEq(ibtRate, IPrincipalToken(pt).getIBTRate());
 
         vm.prank(MOCK_ADDR_2);
-        claimedYield = IPrincipalToken(pt).claimYieldInIBT(MOCK_ADDR_2);
+        claimedYield = IPrincipalToken(pt).claimYieldInIBT(MOCK_ADDR_2, 0);
 
         assertEq(data.ibts1, IPrincipalToken(pt).maxWithdrawIBT(MOCK_ADDR_1));
         assertEq(data.ibts2, IPrincipalToken(pt).maxWithdrawIBT(MOCK_ADDR_2));
@@ -1434,7 +1430,7 @@ contract CustomDecimals is Test {
         _deployProtocol(underlyingDecimals, ibtDecimals, _tokenizationFee, _yieldFee, 0);
 
         vm.prank(feeCollector);
-        IPrincipalToken(pt).claimFees();
+        IPrincipalToken(pt).claimFees(0);
 
         // User deposits assets in PT
         uint256 assets = uint256(bound(_amount, 100, 100_000_000_000 * ASSET_UNIT));
@@ -1471,7 +1467,7 @@ contract CustomDecimals is Test {
         uint256 maxAssets = IPrincipalToken(pt).maxWithdraw(MOCK_ADDR_4);
         vm.startPrank(MOCK_ADDR_4);
         _testPTWithdraw(maxAssets, MOCK_ADDR_4);
-        IPrincipalToken(pt).claimYield(MOCK_ADDR_4);
+        IPrincipalToken(pt).claimYield(MOCK_ADDR_4, 0);
         vm.stopPrank();
 
         // after withdraw
@@ -1530,7 +1526,7 @@ contract CustomDecimals is Test {
         _yieldFee = bound(_yieldFee, 0, MAX_YIELD_FEE);
         _deployProtocol(underlyingDecimals, ibtDecimals, _tokenizationFee, _yieldFee, 0);
         vm.prank(feeCollector);
-        IPrincipalToken(pt).claimFees();
+        IPrincipalToken(pt).claimFees(0);
 
         MockUnderlyingCustomDecimals(underlying).mint(MOCK_ADDR_1, 1000000000000e18);
 
@@ -1602,20 +1598,32 @@ contract CustomDecimals is Test {
                 _calcFees(IERC4626(ibt).previewDeposit(_amount), _tokenizationFee),
                 "Fees should round up compared to theoretical value"
             );
-
+            uint256 underlyingBalanceFeeCollectorBefore = IERC20(underlying).balanceOf(
+                feeCollector
+            );
+            uint256 previewedFees = IERC4626(ibt).previewRedeem(unclaimedFees);
             vm.prank(feeCollector);
-            uint256 redeemedFees = IPrincipalToken(pt).claimFees();
+            vm.expectRevert();
+            uint256 redeemedFees = IPrincipalToken(pt).claimFees(previewedFees + 1000);
+            vm.prank(feeCollector);
+            redeemedFees = IPrincipalToken(pt).claimFees(previewedFees);
+            uint256 underlyingBalanceFeeCollectorAfter = IERC20(underlying).balanceOf(feeCollector);
+            assertEq(
+                underlyingBalanceFeeCollectorBefore + redeemedFees,
+                underlyingBalanceFeeCollectorAfter,
+                "Fee collector did not receive claimed fees"
+            );
             if (_amount < ASSET_UNIT / 100) {
                 assertApproxEqAbs(
                     redeemedFees,
-                    IERC4626(ibt).previewRedeem(unclaimedFees),
+                    previewedFees,
                     100,
                     "Fees claimed dont correspond to available balance"
                 );
             } else {
                 assertApproxEqRel(
                     redeemedFees,
-                    IERC4626(ibt).previewRedeem(unclaimedFees),
+                    previewedFees,
                     1e12,
                     "Fees claimed dont correspond to available balance"
                 );
@@ -1642,7 +1650,7 @@ contract CustomDecimals is Test {
         _yieldFee = bound(_yieldFee, 0, MAX_YIELD_FEE);
         _deployProtocol(underlyingDecimals, ibtDecimals, _tokenizationFee, _yieldFee, 0);
         vm.prank(feeCollector);
-        IPrincipalToken(pt).claimFees();
+        IPrincipalToken(pt).claimFees(0);
 
         MockUnderlyingCustomDecimals(underlying).mint(MOCK_ADDR_1, 1000000000000e18);
 
@@ -1709,7 +1717,7 @@ contract CustomDecimals is Test {
             );
 
             vm.prank(feeCollector);
-            uint256 redeemedFees = IPrincipalToken(pt).claimFees();
+            uint256 redeemedFees = IPrincipalToken(pt).claimFees(0);
             assertApproxEqRel(
                 redeemedFees,
                 IERC4626(ibt).convertToAssets(unclaimedFees),
@@ -1742,7 +1750,7 @@ contract CustomDecimals is Test {
         _deployProtocol(underlyingDecimals, ibtDecimals, _tokenizationFee, _yieldFee, 0);
         dataPT.unclaimedFees1 = IPrincipalToken(pt).getUnclaimedFeesInIBT();
         vm.prank(feeCollector);
-        dataPT.redeemedFees1 = IPrincipalToken(pt).claimFees();
+        dataPT.redeemedFees1 = IPrincipalToken(pt).claimFees(0);
 
         MockUnderlyingCustomDecimals(underlying).mint(MOCK_ADDR_1, 1000000000000e18);
 
@@ -1775,7 +1783,7 @@ contract CustomDecimals is Test {
                 );
             }
             vm.prank(MOCK_ADDR_1);
-            uint256 claimedYield = IPrincipalToken(pt).claimYield(MOCK_ADDR_1);
+            uint256 claimedYield = IPrincipalToken(pt).claimYield(MOCK_ADDR_1, 0);
             dataPT.assetBalAfter = MockUnderlyingCustomDecimals(underlying).balanceOf(MOCK_ADDR_1);
             assertEq(
                 dataPT.assetBalAfter - dataPT.assetBalBefore,
@@ -1832,7 +1840,7 @@ contract CustomDecimals is Test {
             }
 
             vm.prank(feeCollector);
-            dataPT.redeemedFees2 = IPrincipalToken(pt).claimFees();
+            dataPT.redeemedFees2 = IPrincipalToken(pt).claimFees(0);
             dataPT.totalFees = IPrincipalToken(pt).getTotalFeesInIBT();
 
             assertApproxEqAbs(
@@ -1876,7 +1884,7 @@ contract CustomDecimals is Test {
         _ptFlashLoanFee = bound(_ptFlashLoanFee, 0, MAX_PT_FLASH_LOAN_FEE);
         _deployProtocol(underlyingDecimals, ibtDecimals, _tokenizationFee, 0, _ptFlashLoanFee);
         vm.prank(feeCollector);
-        IPrincipalToken(pt).claimFees();
+        IPrincipalToken(pt).claimFees(0);
         _amount = bound(_amount, 0, 100_000_000_000_000_000 * ASSET_UNIT);
         MockUnderlyingCustomDecimals(underlying).mint(
             address(this),
@@ -1948,7 +1956,7 @@ contract CustomDecimals is Test {
                 );
             }
             vm.prank(feeCollector);
-            data.redeemedFees = IPrincipalToken(pt).claimFees();
+            data.redeemedFees = IPrincipalToken(pt).claimFees(0);
             assertApproxEqRel(
                 data.redeemedFees,
                 data.unclaimedFeesInAssets,
@@ -1978,7 +1986,7 @@ contract CustomDecimals is Test {
         _yieldFee = bound(_yieldFee, 0, MAX_YIELD_FEE);
         _deployProtocol(underlyingDecimals, ibtDecimals, _tokenizationFee, _yieldFee, 0);
         vm.prank(feeCollector);
-        IPrincipalToken(pt).claimFees();
+        IPrincipalToken(pt).claimFees(0);
 
         uint256 userFeeReduction = IRegistry(registry).getFeeReduction(pt, MOCK_ADDR_1);
         assertEq(userFeeReduction, 0, "user should not have any reduction by default");
@@ -2047,7 +2055,7 @@ contract CustomDecimals is Test {
 
             uint256 expectedFees = IERC4626(ibt).previewRedeem(unclaimedFees);
             vm.prank(feeCollector);
-            uint256 redeemedFees = IPrincipalToken(pt).claimFees();
+            uint256 redeemedFees = IPrincipalToken(pt).claimFees(0);
             assertApproxEqRel(
                 redeemedFees,
                 expectedFees,
@@ -2078,7 +2086,7 @@ contract CustomDecimals is Test {
         _yieldFee = bound(_yieldFee, 0, MAX_YIELD_FEE);
         _deployProtocol(underlyingDecimals, ibtDecimals, _tokenizationFee, _yieldFee, 0);
         vm.prank(feeCollector);
-        IPrincipalToken(pt).claimFees();
+        IPrincipalToken(pt).claimFees(0);
 
         _reduction = bound(_reduction, 0, FEE_DIVISOR);
 
@@ -2152,7 +2160,7 @@ contract CustomDecimals is Test {
 
             uint256 expectedFees = IERC4626(ibt).previewRedeem(unclaimedFees);
             vm.prank(feeCollector);
-            uint256 redeemedFees = IPrincipalToken(pt).claimFees();
+            uint256 redeemedFees = IPrincipalToken(pt).claimFees(0);
             assertApproxEqRel(
                 redeemedFees,
                 expectedFees,
@@ -2185,7 +2193,7 @@ contract CustomDecimals is Test {
         _yieldFee = bound(_yieldFee, 0, MAX_YIELD_FEE);
         _deployProtocol(underlyingDecimals, ibtDecimals, _tokenizationFee, _yieldFee, 0);
         vm.prank(feeCollector);
-        IPrincipalToken(pt).claimFees();
+        IPrincipalToken(pt).claimFees(0);
 
         _reduction = bound(_reduction, 0, FEE_DIVISOR);
 
@@ -2260,7 +2268,7 @@ contract CustomDecimals is Test {
 
             uint256 expectedFees = IERC4626(ibt).previewRedeem(unclaimedFees);
             vm.prank(feeCollector);
-            uint256 redeemedFees = IPrincipalToken(pt).claimFees();
+            uint256 redeemedFees = IPrincipalToken(pt).claimFees(0);
             assertApproxEqRel(
                 redeemedFees,
                 expectedFees,
@@ -4514,7 +4522,9 @@ contract CustomDecimals is Test {
 
         if (data.expectedAssets1 > 0) {
             assets = IPrincipalToken(pt).redeem(maxRedeem, owner, owner);
-            assets += IPrincipalToken(pt).claimYield(owner);
+            vm.expectRevert();
+            IPrincipalToken(pt).claimYield(owner, previewYield + 1000);
+            assets += IPrincipalToken(pt).claimYield(owner, previewYield);
 
             // data after
             data.assetBalAfter = IERC20(underlying).balanceOf(owner);
@@ -4597,7 +4607,7 @@ contract CustomDecimals is Test {
 
         if (data.expectedIbts1 > 0) {
             ibts = IPrincipalToken(pt).redeemForIBT(maxRedeem, owner, owner);
-            ibts += IPrincipalToken(pt).claimYieldInIBT(owner);
+            ibts += IPrincipalToken(pt).claimYieldInIBT(owner, 0);
 
             // data after
             data.assetBalAfter = IERC20(underlying).balanceOf(owner);

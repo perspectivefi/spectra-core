@@ -9,27 +9,17 @@ import "../interfaces/IPrincipalToken.sol";
 import "../interfaces/IYieldToken.sol";
 
 /**
- * @title Yield Token contract
- * @author Spectra Finance
- * @notice A YieldToken (YT) is a Spectra token that keeps track of users' yield ownership. It is minted at same
- * times and amounts as a PT.
+ * @dev This contract is used to test upgradeability of YieldToken.sol.
+ * Only differences with YieldToken.sol are the additions of the getPT2,
+ * getTestUpgradeability and setTestUpgradeability methods.
  */
-contract YieldToken is IYieldToken, ERC20PermitUpgradeable {
+contract MockYieldTokenV2 is IYieldToken, ERC20PermitUpgradeable {
     using Math for uint256;
 
     /** @notice PT associated with this yt */
     address private pt;
 
-    /* MODIFIERS
-     *****************************************************************************************************************/
-
-    /** @notice Ensures the associated PT contract is not paused */
-    modifier whenPTNotPaused() {
-        if (IPrincipalToken(pt).paused()) {
-            revert EnforcedPause();
-        }
-        _;
-    }
+    uint256 private testUpgradeability;
 
     // constructor
     constructor() {
@@ -125,8 +115,23 @@ contract YieldToken is IYieldToken, ERC20PermitUpgradeable {
         return pt;
     }
 
+    /** @dev Used for upgradeability testing */
+    function getPT2() public view virtual returns (address) {
+        return address(0);
+    }
+
+    /** @dev Used for upgradeability testing */
+    function setTestUpgradeability(uint256 _testUpgradeability) public {
+        testUpgradeability = _testUpgradeability;
+    }
+
+    /** @dev Used for upgradeability testing */
+    function getTestUpgradeability() public view virtual returns (uint256) {
+        return testUpgradeability;
+    }
+
     /**
-     * @dev See {IYieldToken-totalSupply}.
+     * @dev See {IERC20-totalSupply}.
      */
     function totalSupply() public view override(IYieldToken, ERC20Upgradeable) returns (uint256) {
         return (block.timestamp < IPrincipalToken(pt).maturity()) ? super.totalSupply() : 0;
@@ -142,17 +147,5 @@ contract YieldToken is IYieldToken, ERC20PermitUpgradeable {
     /** @dev See {IYieldToken-actualBalanceOf} */
     function actualBalanceOf(address account) public view override returns (uint256) {
         return super.balanceOf(account);
-    }
-
-    /**
-     * @dev See {ERC20PermitUpgradeable-_update}.
-     * @dev the associated PT contract must not be paused.
-     */
-    function _update(
-        address from,
-        address to,
-        uint256 value
-    ) internal virtual override whenPTNotPaused {
-        super._update(from, to, value);
     }
 }

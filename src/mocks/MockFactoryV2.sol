@@ -30,12 +30,15 @@ contract MockFactoryV2 is IFactory, AccessManagedUpgradeable {
         IPrincipalToken(address(0)).setRewardsProxy.selector;
     bytes4 constant CLAIM_REWARDS_SELECTOR = IPrincipalToken(address(0)).claimRewards.selector;
 
+    /** @notice registry of the protocol */
     address private immutable registry;
+    /** @notice Address provider of Curve protocol, used to obtain address of Curve Factory */
     address private immutable curveAddressProvider;
 
     /* State
      *****************************************************************************************************************/
 
+    /** @notice Factory of Curve protocol, used to deploy pools */
     address private curveFactory;
 
     /* Events

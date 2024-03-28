@@ -11,7 +11,7 @@ import "../libraries/RayMath.sol";
 
 /**
  * @dev This library is used to test upgradeability of PrincipalToken.sol.
- * Only differences with PrincipalTokenUtil.sol is that _computeYield always
+ * Only differences with PrincipalTokenUtil.sol is that computeYield always
  * returns 1000000e18, and all compute fee functions return 0.
  */
 library MockPrincipalTokenUtilV2 {
@@ -22,44 +22,22 @@ library MockPrincipalTokenUtilV2 {
 
     uint256 private constant SAFETY_BOUND = 100; // used to favour the protocol in case of approximations
     uint256 private constant FEE_DIVISOR = 1e18; // equivalent to 100% fees
-
-    /** @dev See {IPrincipalToken-convertToSharesWithRate}. */
-    function _convertToSharesWithRate(
-        uint256 _assets,
-        uint256 _rate,
-        uint256 _ibtUnit,
-        Math.Rounding _rounding
-    ) internal pure returns (uint256 shares) {
-        if (_rate == 0) {
-            revert IPrincipalToken.RateError();
-        }
-        return _assets.mulDiv(_ibtUnit, _rate, _rounding);
-    }
-
-    /** @dev See {IPrincipalToken-convertToAssetsWithRate}. */
-    function _convertToAssetsWithRate(
-        uint256 _shares,
-        uint256 _rate,
-        uint256 _ibtUnit,
-        Math.Rounding _rounding
-    ) internal pure returns (uint256 assets) {
-        return _shares.mulDiv(_rate, _ibtUnit, _rounding);
-    }
+    uint256 private constant MIN_LENGTH = 32; // minimum length the encoded decimals should have
 
     /**
      * @dev Compute yield of a user since last update (mocked)
-     * @return returns the calculated yield in IBT of user
+     * @return updatedYieldInIBT the calculated yield in IBT of user
      */
-    function _computeYield(
+    function computeYield(
         address /* _user */,
-        uint256 /* _userYieldIBTRay */,
+        uint256 /* _currentYieldInIBT */,
         uint256 /* _oldIBTRate */,
         uint256 /* _ibtRate */,
         uint256 /* _oldPTRate */,
         uint256 /* _ptRate */,
         address /* _yt */
-    ) external pure returns (uint256) {
-        return 1000000e18;
+    ) external pure returns (uint256 updatedYieldInIBT) {
+        updatedYieldInIBT = 1000000e18;
     }
 
     /**
@@ -67,17 +45,50 @@ library MockPrincipalTokenUtilV2 {
      * @param _token The token address
      * @return The ERC20 token decimals
      */
-    function _tryGetTokenDecimals(address _token) external view returns (uint8) {
+    function tryGetTokenDecimals(address _token) external view returns (uint8) {
         (bool success, bytes memory encodedDecimals) = _token.staticcall(
             abi.encodeCall(IERC20Metadata.decimals, ())
         );
-        if (success && encodedDecimals.length >= 32) {
+        if (success && encodedDecimals.length >= MIN_LENGTH) {
             uint256 returnedDecimals = abi.decode(encodedDecimals, (uint256));
             if (returnedDecimals <= type(uint8).max) {
                 return uint8(returnedDecimals);
             }
         }
         revert AssetDoesNotImplementMetadata();
+    }
+
+    /**
+     * @dev Convert underlying amount to share, with the given rate
+     * @param _assetsInRay The amount of underlying (in Ray)
+     * @param _rate The share price in underlying (in Ray)
+     * @param _rounding The rounding type to be used in the computation
+     * @return sharesInRay The amount of share (in Ray)
+     */
+    function _convertToSharesWithRate(
+        uint256 _assetsInRay,
+        uint256 _rate,
+        Math.Rounding _rounding
+    ) internal pure returns (uint256 sharesInRay) {
+        if (_rate == 0) {
+            revert IPrincipalToken.RateError();
+        }
+        sharesInRay = _assetsInRay.mulDiv(RayMath.RAY_UNIT, _rate, _rounding);
+    }
+
+    /**
+     * @dev Convert share amount to underlying, with the given rate
+     * @param _sharesInRay The amount of share (in Ray)
+     * @param _rate The share price in underlying (in Ray)
+     * @param _rounding The rounding type to be used in the computation
+     * @return assetsInRay The amount of underlying (in Ray)
+     */
+    function _convertToAssetsWithRate(
+        uint256 _sharesInRay,
+        uint256 _rate,
+        Math.Rounding _rounding
+    ) internal pure returns (uint256 assetsInRay) {
+        assetsInRay = _sharesInRay.mulDiv(_rate, RayMath.RAY_UNIT, _rounding);
     }
 
     /**

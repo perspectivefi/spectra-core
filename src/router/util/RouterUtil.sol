@@ -12,6 +12,11 @@ import {ICurvePool} from "../../interfaces/ICurvePool.sol";
 import {IPrincipalToken} from "../../interfaces/IPrincipalToken.sol";
 import {Constants} from "../Constants.sol";
 
+/**
+ * @title Router Util contract
+ * @author Spectra Finance
+ * @notice Provides miscellaneous utils and preview functions related to Router executions.
+ */
 contract RouterUtil {
     using Math for uint256;
     using SafeCast for uint256;

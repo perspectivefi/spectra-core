@@ -336,7 +336,7 @@ contract ContractPrincipalToken2 is Test {
         yieldData.yieldClaimed = yieldData.actualYieldUser2;
 
         vm.startPrank(MOCK_ADDR_2);
-        principalToken.claimYield(MOCK_ADDR_2);
+        principalToken.claimYield(MOCK_ADDR_2, 0);
         vm.stopPrank();
         assertEq(
             underlying.balanceOf(MOCK_ADDR_2),
@@ -359,7 +359,7 @@ contract ContractPrincipalToken2 is Test {
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_2);
         yieldData.yieldClaimed = yieldData.actualYieldUser2;
         vm.startPrank(MOCK_ADDR_2);
-        principalToken.claimYield(MOCK_ADDR_2);
+        principalToken.claimYield(MOCK_ADDR_2, 0);
         vm.stopPrank();
         assertEq(
             underlying.balanceOf(MOCK_ADDR_2),
@@ -498,7 +498,7 @@ contract ContractPrincipalToken2 is Test {
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_2);
         yieldData.yieldClaimed = yieldData.actualYieldUser2;
         vm.startPrank(MOCK_ADDR_2);
-        principalToken.claimYield(MOCK_ADDR_2);
+        principalToken.claimYield(MOCK_ADDR_2, 0);
         vm.stopPrank();
         assertEq(
             underlying.balanceOf(MOCK_ADDR_2),
@@ -521,7 +521,7 @@ contract ContractPrincipalToken2 is Test {
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_3);
         yieldData.yieldClaimed = yieldData.actualYieldUser3;
         vm.startPrank(MOCK_ADDR_3);
-        principalToken.claimYield(MOCK_ADDR_3);
+        principalToken.claimYield(MOCK_ADDR_3, 0);
         vm.stopPrank();
         assertEq(
             underlying.balanceOf(MOCK_ADDR_3),
@@ -636,7 +636,7 @@ contract ContractPrincipalToken2 is Test {
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_2);
         yieldData.yieldClaimed = yieldData.actualYieldUser2;
         vm.startPrank(MOCK_ADDR_2);
-        principalToken.claimYield(MOCK_ADDR_2);
+        principalToken.claimYield(MOCK_ADDR_2, 0);
         vm.stopPrank();
         assertEq(
             underlying.balanceOf(MOCK_ADDR_2),
@@ -783,7 +783,7 @@ contract ContractPrincipalToken2 is Test {
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_3);
         yieldData.yieldClaimed = yieldData.actualYieldUser3;
         vm.startPrank(MOCK_ADDR_3);
-        principalToken.claimYield(MOCK_ADDR_3);
+        principalToken.claimYield(MOCK_ADDR_3, 0);
         vm.stopPrank();
         assertEq(
             underlying.balanceOf(MOCK_ADDR_3),
@@ -904,7 +904,7 @@ contract ContractPrincipalToken2 is Test {
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_2);
         yieldData.yieldClaimed = yieldData.actualYieldUser2;
         vm.startPrank(MOCK_ADDR_2);
-        principalToken.claimYield(MOCK_ADDR_2);
+        principalToken.claimYield(MOCK_ADDR_2, 0);
         vm.stopPrank();
         assertEq(
             underlying.balanceOf(MOCK_ADDR_2),
@@ -926,7 +926,7 @@ contract ContractPrincipalToken2 is Test {
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_4);
         yieldData.yieldClaimed = yieldData.actualYieldUser4;
         vm.startPrank(MOCK_ADDR_4);
-        principalToken.claimYield(MOCK_ADDR_4);
+        principalToken.claimYield(MOCK_ADDR_4, 0);
         vm.stopPrank();
         assertEq(
             underlying.balanceOf(MOCK_ADDR_4),
@@ -949,7 +949,7 @@ contract ContractPrincipalToken2 is Test {
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_3);
         yieldData.yieldClaimed = yieldData.actualYieldUser3;
         vm.startPrank(MOCK_ADDR_3);
-        principalToken.claimYield(MOCK_ADDR_3);
+        principalToken.claimYield(MOCK_ADDR_3, 0);
         vm.stopPrank();
         assertEq(
             underlying.balanceOf(MOCK_ADDR_3),
@@ -996,7 +996,7 @@ contract ContractPrincipalToken2 is Test {
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_4);
         yieldData.yieldClaimed = yieldData.actualYieldUser4;
         vm.prank(MOCK_ADDR_4);
-        principalToken.claimYield(MOCK_ADDR_4);
+        principalToken.claimYield(MOCK_ADDR_4, 0);
         assertEq(
             underlying.balanceOf(MOCK_ADDR_4),
             yieldData.underlyingBalanceBefore +
@@ -1134,7 +1134,7 @@ contract ContractPrincipalToken2 is Test {
 
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_1);
         vm.prank(MOCK_ADDR_1);
-        principalToken.claimYield(MOCK_ADDR_1);
+        principalToken.claimYield(MOCK_ADDR_1, 0);
         assertEq(
             underlying.balanceOf(MOCK_ADDR_1),
             yieldData.underlyingBalanceBefore +
@@ -1151,7 +1151,7 @@ contract ContractPrincipalToken2 is Test {
 
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_2);
         vm.startPrank(MOCK_ADDR_2);
-        principalToken.claimYield(MOCK_ADDR_2);
+        principalToken.claimYield(MOCK_ADDR_2, 0);
         vm.stopPrank();
         assertEq(
             underlying.balanceOf(MOCK_ADDR_2),
@@ -1169,7 +1169,7 @@ contract ContractPrincipalToken2 is Test {
 
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_3);
         vm.startPrank(MOCK_ADDR_3);
-        principalToken.claimYield(MOCK_ADDR_3);
+        principalToken.claimYield(MOCK_ADDR_3, 0);
         vm.stopPrank();
         assertEq(
             underlying.balanceOf(MOCK_ADDR_3),
@@ -1187,7 +1187,7 @@ contract ContractPrincipalToken2 is Test {
 
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_4);
         vm.startPrank(MOCK_ADDR_4);
-        principalToken.claimYield(MOCK_ADDR_4);
+        principalToken.claimYield(MOCK_ADDR_4, 0);
         vm.stopPrank();
         assertEq(
             underlying.balanceOf(MOCK_ADDR_4),
@@ -1283,7 +1283,7 @@ contract ContractPrincipalToken2 is Test {
         yieldData.yieldClaimed = yieldData.actualYieldUser2;
         yieldData.yieldClaimed -= _calcFees(yieldData.yieldClaimed, registry.getYieldFee());
         vm.startPrank(MOCK_ADDR_2);
-        principalToken.claimYield(MOCK_ADDR_2);
+        principalToken.claimYield(MOCK_ADDR_2, 0);
         vm.stopPrank();
         assertApproxEqAbs(
             underlying.balanceOf(MOCK_ADDR_2),
@@ -1307,7 +1307,7 @@ contract ContractPrincipalToken2 is Test {
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_2);
         yieldData.yieldClaimed = yieldData.actualYieldUser2;
         vm.startPrank(MOCK_ADDR_2);
-        principalToken.claimYield(MOCK_ADDR_2);
+        principalToken.claimYield(MOCK_ADDR_2, 0);
         vm.stopPrank();
         assertApproxEqAbs(
             underlying.balanceOf(MOCK_ADDR_2),
@@ -1514,7 +1514,7 @@ contract ContractPrincipalToken2 is Test {
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_2);
         yieldData.yieldClaimed = yieldData.actualYieldUser2;
         vm.startPrank(MOCK_ADDR_2);
-        principalToken.claimYield(MOCK_ADDR_2);
+        principalToken.claimYield(MOCK_ADDR_2, 0);
         vm.stopPrank();
         assertApproxEqAbs(
             underlying.balanceOf(MOCK_ADDR_2),
@@ -1538,7 +1538,7 @@ contract ContractPrincipalToken2 is Test {
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_3);
         yieldData.yieldClaimed = yieldData.actualYieldUser3;
         vm.startPrank(MOCK_ADDR_3);
-        principalToken.claimYield(MOCK_ADDR_3);
+        principalToken.claimYield(MOCK_ADDR_3, 0);
         vm.stopPrank();
         assertApproxEqAbs(
             underlying.balanceOf(MOCK_ADDR_3),
@@ -1737,7 +1737,7 @@ contract ContractPrincipalToken2 is Test {
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_2);
         yieldData.yieldClaimed = yieldData.actualYieldUser2;
         vm.startPrank(MOCK_ADDR_2);
-        principalToken.claimYield(MOCK_ADDR_2);
+        principalToken.claimYield(MOCK_ADDR_2, 0);
         vm.stopPrank();
         assertApproxEqAbs(
             underlying.balanceOf(MOCK_ADDR_2),
@@ -1891,7 +1891,7 @@ contract ContractPrincipalToken2 is Test {
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_3);
         yieldData.yieldClaimed = yieldData.actualYieldUser3;
         vm.startPrank(MOCK_ADDR_3);
-        principalToken.claimYield(MOCK_ADDR_3);
+        principalToken.claimYield(MOCK_ADDR_3, 0);
         vm.stopPrank();
         assertApproxEqAbs(
             underlying.balanceOf(MOCK_ADDR_3),
@@ -2013,7 +2013,7 @@ contract ContractPrincipalToken2 is Test {
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_2);
         yieldData.yieldClaimed = yieldData.actualYieldUser2;
         vm.startPrank(MOCK_ADDR_2);
-        principalToken.claimYield(MOCK_ADDR_2);
+        principalToken.claimYield(MOCK_ADDR_2, 0);
         vm.stopPrank();
         assertApproxEqAbs(
             underlying.balanceOf(MOCK_ADDR_2),
@@ -2035,7 +2035,7 @@ contract ContractPrincipalToken2 is Test {
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_4);
         yieldData.yieldClaimed = yieldData.actualYieldUser4;
         vm.startPrank(MOCK_ADDR_4);
-        principalToken.claimYield(MOCK_ADDR_4);
+        principalToken.claimYield(MOCK_ADDR_4, 0);
         vm.stopPrank();
         assertApproxEqAbs(
             underlying.balanceOf(MOCK_ADDR_4),
@@ -2059,7 +2059,7 @@ contract ContractPrincipalToken2 is Test {
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_3);
         yieldData.yieldClaimed = yieldData.actualYieldUser3;
         vm.startPrank(MOCK_ADDR_3);
-        principalToken.claimYield(MOCK_ADDR_3);
+        principalToken.claimYield(MOCK_ADDR_3, 0);
         vm.stopPrank();
         assertApproxEqAbs(
             underlying.balanceOf(MOCK_ADDR_3),
@@ -2107,7 +2107,7 @@ contract ContractPrincipalToken2 is Test {
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_4);
         yieldData.yieldClaimed = yieldData.actualYieldUser4;
         vm.prank(MOCK_ADDR_4);
-        principalToken.claimYield(MOCK_ADDR_4);
+        principalToken.claimYield(MOCK_ADDR_4, 0);
         assertApproxEqAbs(
             underlying.balanceOf(MOCK_ADDR_4),
             yieldData.underlyingBalanceBefore +
@@ -2237,7 +2237,7 @@ contract ContractPrincipalToken2 is Test {
 
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_1);
         vm.prank(MOCK_ADDR_1);
-        principalToken.claimYield(MOCK_ADDR_1);
+        principalToken.claimYield(MOCK_ADDR_1, 0);
         assertApproxEqAbs(
             underlying.balanceOf(MOCK_ADDR_1),
             yieldData.underlyingBalanceBefore +
@@ -2255,7 +2255,7 @@ contract ContractPrincipalToken2 is Test {
 
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_2);
         vm.startPrank(MOCK_ADDR_2);
-        principalToken.claimYield(MOCK_ADDR_2);
+        principalToken.claimYield(MOCK_ADDR_2, 0);
         vm.stopPrank();
         assertApproxEqAbs(
             underlying.balanceOf(MOCK_ADDR_2),
@@ -2274,7 +2274,7 @@ contract ContractPrincipalToken2 is Test {
 
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_3);
         vm.startPrank(MOCK_ADDR_3);
-        principalToken.claimYield(MOCK_ADDR_3);
+        principalToken.claimYield(MOCK_ADDR_3, 0);
         vm.stopPrank();
         assertApproxEqAbs(
             underlying.balanceOf(MOCK_ADDR_3),
@@ -2293,7 +2293,7 @@ contract ContractPrincipalToken2 is Test {
 
         yieldData.underlyingBalanceBefore = underlying.balanceOf(MOCK_ADDR_4);
         vm.startPrank(MOCK_ADDR_4);
-        principalToken.claimYield(MOCK_ADDR_4);
+        principalToken.claimYield(MOCK_ADDR_4, 0);
         vm.stopPrank();
         assertApproxEqAbs(
             underlying.balanceOf(MOCK_ADDR_4),
@@ -2398,14 +2398,6 @@ contract ContractPrincipalToken2 is Test {
             "YieldToken.balanceOf should always return 0 after expiry"
         );
 
-        // balanceOf returns 0 but user's YTs can still be transfered
-        uint256 transferAmount = (yt.actualBalanceOf(MOCK_ADDR_1) * transferProportion) / IBT_UNIT;
-        yt.transfer(MOCK_ADDR_2, transferAmount);
-
-        bytes memory revertData = abi.encodeWithSignature("RatesAtExpiryAlreadyStored()");
-        vm.expectRevert(revertData);
-        principalToken.storeRatesAtExpiry();
-
         // Redeem for user 1
         userData.underlyingRedeemed1 = principalToken.redeem(
             userData.userPTBalanceBefore,
@@ -2416,7 +2408,7 @@ contract ContractPrincipalToken2 is Test {
         assertEq(userData.userPTBalanceAfter, 0, "User 1 should have 0 PT left after redeem");
 
         // Claim yield for user 1
-        userData.claimedYield1 = principalToken.claimYield(MOCK_ADDR_1);
+        userData.claimedYield1 = principalToken.claimYield(MOCK_ADDR_1, 0);
 
         userData.userUnderlyingBalanceAfter = underlying.balanceOf(MOCK_ADDR_1);
         userData.totalUnderlyingEarned1 = userData.underlyingRedeemed1 + userData.claimedYield1;
@@ -2443,7 +2435,7 @@ contract ContractPrincipalToken2 is Test {
         assertEq(userData.userPTBalanceAfter, 0, "User 2 should have 0 PT left after redeem");
 
         // Claim yield for user 2
-        userData.claimedYield2 = principalToken.claimYield(MOCK_ADDR_2);
+        userData.claimedYield2 = principalToken.claimYield(MOCK_ADDR_2, 0);
 
         userData.userUnderlyingBalanceAfter = underlying.balanceOf(MOCK_ADDR_2);
         userData.totalUnderlyingEarned2 = userData.underlyingRedeemed2 + userData.claimedYield2;
@@ -2485,7 +2477,7 @@ contract ContractPrincipalToken2 is Test {
         assertEq(userData.userPTBalanceAfter, 0, "PT balance of user 3 after redeem is wrong");
 
         // Claim yield for user 3
-        userData.claimedYield1 = principalToken.claimYield(MOCK_ADDR_3);
+        userData.claimedYield1 = principalToken.claimYield(MOCK_ADDR_3, 0);
         userData.userUnderlyingBalanceAfter = underlying.balanceOf(MOCK_ADDR_3);
         assertEq(
             userData.userUnderlyingBalanceAfter,
@@ -2510,7 +2502,7 @@ contract ContractPrincipalToken2 is Test {
         assertEq(userData.userPTBalanceAfter, 0, "PT balance of user 4 after redeem is wrong");
 
         // Claim yield for user 4
-        userData.claimedYield2 = principalToken.claimYield(MOCK_ADDR_4);
+        userData.claimedYield2 = principalToken.claimYield(MOCK_ADDR_4, 0);
         userData.userUnderlyingBalanceAfter = underlying.balanceOf(MOCK_ADDR_4);
         assertEq(
             userData.userUnderlyingBalanceAfter,
@@ -2551,7 +2543,7 @@ contract ContractPrincipalToken2 is Test {
             MOCK_ADDR_1,
             MOCK_ADDR_1
         );
-        userData.claimedYield1 = principalToken.claimYield(MOCK_ADDR_1);
+        userData.claimedYield1 = principalToken.claimYield(MOCK_ADDR_1, 0);
         assertEq(userData.underlyingRedeemed1, 0, "Second redeem of user1 should return 0");
         assertEq(userData.claimedYield1, 0, "Second claimYield of user1 should return 0");
     }
@@ -2587,7 +2579,7 @@ contract ContractPrincipalToken2 is Test {
             );
             // claiming yield
             vm.startPrank(MOCK_ADDR_1);
-            uint256 claimedYieldInUnderlying = principalToken.claimYield(MOCK_ADDR_1);
+            uint256 claimedYieldInUnderlying = principalToken.claimYield(MOCK_ADDR_1, 0);
             uint256 claimedYieldInIBT = ibt.convertToShares(claimedYieldInUnderlying);
             assertApproxEqAbs(
                 yieldInUnderlyingOfUser,
@@ -2668,7 +2660,7 @@ contract ContractPrincipalToken2 is Test {
         uint256 rate,
         Math.Rounding rounding
     ) internal view returns (uint256 shares) {
-        return PrincipalTokenUtil._convertToSharesWithRate(assets, rate, IBT_UNIT, rounding);
+        shares = assets.mulDiv(IBT_UNIT, rate, rounding);
     }
 
     function _convertToAssetsWithRate(
@@ -2676,7 +2668,7 @@ contract ContractPrincipalToken2 is Test {
         uint256 rate,
         Math.Rounding rounding
     ) internal view returns (uint256 assets) {
-        return PrincipalTokenUtil._convertToAssetsWithRate(shares, rate, IBT_UNIT, rounding);
+        assets = shares.mulDiv(rate, IBT_UNIT, rounding);
     }
 
     function _updateYield(address user) internal returns (uint256) {

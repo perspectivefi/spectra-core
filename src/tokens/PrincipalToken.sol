@@ -22,6 +22,7 @@ import "../interfaces/IRewardsProxy.sol";
 
 /**
  * @title PrincipalToken contract
+ * @author Spectra Finance
  * @notice A PrincipalToken (PT) is an ERC5095 vault that allows user to tokenize their yield in a permissionless manner.
  * The shares of the vaults are composed by PT/YT pairs. These are always minted at same times and amounts upon deposits.
  * Until expiry burning shares necessitates to burn both tokens. At expiry, burning PTs is sufficient.
@@ -34,34 +35,63 @@ contract PrincipalToken is
     IPrincipalToken
 {
     using SafeERC20 for IERC20;
+    using PrincipalTokenUtil for address;
+    using PrincipalTokenUtil for uint256;
     using RayMath for uint256;
     using Math for uint256;
 
+    /** @dev minimum allowed decimals for underlying and IBT */
     uint256 private constant MIN_DECIMALS = 6;
+    /** @dev maximum allowed decimals for underlying and IBT */
     uint256 private constant MAX_DECIMALS = 18;
+    /** @dev Rates At Expiry not stored */
+    uint256 private constant RAE_NOT_STORED = 0;
+    /** @dev Rates At Expiry stored */
+    uint256 private constant RAE_STORED = 1;
+    /** @dev expected return value from borrowers onFlashLoan function */
     bytes32 private constant ON_FLASH_LOAN = keccak256("ERC3156FlashBorrower.onFlashLoan");
 
+    /** @notice registry of the protocol */
     address private immutable registry;
 
+    /** @notice rewards proxy for this specific instance of PT */
     address private rewardsProxy;
-    bool private ratesAtExpiryStored;
-    address private ibt; // address of the Interest Bearing Token 4626 held by this PT vault
-    address private _asset; // the asset of this PT vault (which is also the asset of the IBT 4626)
-    address private yt; // YT corresponding to this PT, deployed at initialization
-    uint256 private ibtUnit; // equal to one unit of the IBT held by this PT vault (10^decimals)
-    uint256 private _ibtDecimals;
-    uint256 private _assetDecimals;
 
-    uint256 private ptRate; // or PT price in asset (in Ray)
-    uint256 private ibtRate; // or IBT price in asset (in Ray)
-    uint256 private unclaimedFeesInIBT; // unclaimed fees
-    uint256 private totalFeesInIBT; // total fees
-    uint256 private expiry; // date of maturity (set at initialization)
-    uint256 private duration; // duration to maturity
+    /** @dev decimals of the IBT */
+    uint8 private ibtDecimals;
+    /** @dev decimals of the underlying asset */
+    uint8 private underlyingDecimals;
 
-    mapping(address => uint256) private ibtRateOfUser; // stores each user's IBT rate (in Ray)
-    mapping(address => uint256) private ptRateOfUser; // stores each user's PT rate (in Ray)
-    mapping(address => uint256) private yieldOfUserInIBT; // stores each user's yield generated from YTs
+    /** @notice Interest Bearing Token 4626 held by this PT vault */
+    address private ibt;
+    /** @notice underlying asset of this PT vault (which is also the underlying of the IBT 4626) */
+    address private underlying_;
+    /** @notice YT corresponding to this PT, deployed at initialization */
+    address private yt;
+    /** @dev represents one unit of the IBT held by this PT vault (10^decimals) */
+    uint256 private ibtUnit;
+
+    /** @dev PT price in asset (in Ray) */
+    uint256 private ptRate;
+    /** @dev IBT price in asset (in Ray) */
+    uint256 private ibtRate;
+    /** @dev unclaimed fees */
+    uint256 private unclaimedFeesInIBT;
+    /** @dev total fees */
+    uint256 private totalFeesInIBT;
+    /** @dev date of maturity (set at initialization) */
+    uint256 private expiry;
+    /** @dev duration to maturity */
+    uint256 private duration;
+    /** @dev uint256 flag acting as a boolean to track whether PT and IBT rates have been stored after expiry */
+    uint256 private ratesAtExpiryStored;
+
+    /** @dev stores each user's IBT rate (in Ray) */
+    mapping(address user => uint256 lastIBTRate) private ibtRateOfUser;
+    /** @dev stores each user's PT rate (in Ray) */
+    mapping(address user => uint256 lastPTRate) private ptRateOfUser;
+    /** @dev stores each user's yield generated from YTs */
+    mapping(address user => uint256 yieldInIBT) private yieldOfUserInIBT;
 
     /* EVENTS
      *****************************************************************************************************************/
@@ -81,7 +111,7 @@ contract PrincipalToken is
     /* MODIFIERS
      *****************************************************************************************************************/
 
-    /// @notice Ensures the current block timestamp is before expiry
+    /** @notice Ensures the current block timestamp is before expiry */
     modifier notExpired() virtual {
         if (block.timestamp >= expiry) {
             revert PTExpired();
@@ -89,7 +119,7 @@ contract PrincipalToken is
         _;
     }
 
-    /// @notice Ensures the current block timestamp is at or after expiry
+    /** @notice Ensures the current block timestamp is at or after expiry */
     modifier afterExpiry() virtual {
         if (block.timestamp < expiry) {
             revert PTNotExpired();
@@ -112,7 +142,7 @@ contract PrincipalToken is
 
     /**
      * @dev First function called after deployment of the contract
-     * it deploys yt and intializes values of required variables
+     * it deploys yt and initializes values of required variables
      * @param _ibt The token which PT contract holds
      * @param _duration The duration (in s) to expiry/maturity of the PT contract
      * @param _initialAuthority The initial authority of the PT contract
@@ -128,32 +158,35 @@ contract PrincipalToken is
         if (IERC4626(_ibt).totalAssets() == 0) {
             revert RateError();
         }
-        _asset = IERC4626(_ibt).asset();
         duration = _duration;
-        expiry = _duration + block.timestamp;
+        uint256 _expiry = _duration + block.timestamp;
+        expiry = _expiry;
         string memory _ibtSymbol = IERC4626(_ibt).symbol();
-        string memory name = NamingUtil.genPTName(_ibtSymbol, expiry);
-        __ERC20_init(name, NamingUtil.genPTSymbol(_ibtSymbol, expiry));
-        __ERC20Permit_init(name);
+        string memory _name = NamingUtil.genPTName(_ibtSymbol, _expiry);
+        __ERC20_init(_name, NamingUtil.genPTSymbol(_ibtSymbol, _expiry));
+        __ERC20Permit_init(_name);
         __Pausable_init();
         __ReentrancyGuard_init();
         __AccessManaged_init(_initialAuthority);
-        _ibtDecimals = IERC4626(_ibt).decimals();
-        _assetDecimals = PrincipalTokenUtil._tryGetTokenDecimals(_asset);
+        underlying_ = IERC4626(_ibt).asset();
+        uint8 _underlyingDecimals = underlying_.tryGetTokenDecimals();
+        uint8 _ibtDecimals = IERC4626(_ibt).decimals();
         if (
-            _assetDecimals < MIN_DECIMALS ||
-            _assetDecimals > _ibtDecimals ||
+            _underlyingDecimals < MIN_DECIMALS ||
+            _underlyingDecimals > _ibtDecimals ||
             _ibtDecimals > MAX_DECIMALS
         ) {
             revert InvalidDecimals();
         }
+        underlyingDecimals = _underlyingDecimals;
+        ibtDecimals = _ibtDecimals;
         ibt = _ibt;
         ibtUnit = 10 ** _ibtDecimals;
-        ibtRate = IERC4626(ibt).previewRedeem(ibtUnit).toRay(_assetDecimals);
+        ibtRate = IERC4626(_ibt).previewRedeem(ibtUnit).toRay(_underlyingDecimals);
         ptRate = RayMath.RAY_UNIT;
         yt = _deployYT(
-            NamingUtil.genYTName(_ibtSymbol, expiry),
-            NamingUtil.genYTSymbol(_ibtSymbol, expiry)
+            NamingUtil.genYTName(_ibtSymbol, _expiry),
+            NamingUtil.genYTSymbol(_ibtSymbol, _expiry)
         );
     }
 
@@ -177,10 +210,12 @@ contract PrincipalToken is
         uint256 assets,
         address ptReceiver,
         address ytReceiver
-    ) public override returns (uint256 shares) {
-        IERC20(_asset).safeTransferFrom(msg.sender, address(this), assets);
-        IERC20(_asset).safeIncreaseAllowance(ibt, assets);
-        uint256 ibts = IERC4626(ibt).deposit(assets, address(this));
+    ) public override nonReentrant returns (uint256 shares) {
+        address _ibt = ibt;
+        address _underlying = underlying_;
+        IERC20(_underlying).safeTransferFrom(msg.sender, address(this), assets);
+        IERC20(_underlying).safeIncreaseAllowance(_ibt, assets);
+        uint256 ibts = IERC4626(_ibt).deposit(assets, address(this));
         shares = _depositIBT(ibts, ptReceiver, ytReceiver);
     }
 
@@ -207,7 +242,7 @@ contract PrincipalToken is
         uint256 ibts,
         address ptReceiver,
         address ytReceiver
-    ) public override returns (uint256 shares) {
+    ) public override nonReentrant returns (uint256 shares) {
         IERC20(ibt).safeTransferFrom(msg.sender, address(this), ibts);
         shares = _depositIBT(ibts, ptReceiver, ytReceiver);
     }
@@ -230,10 +265,10 @@ contract PrincipalToken is
         uint256 shares,
         address receiver,
         address owner
-    ) public override returns (uint256 assets) {
+    ) public override nonReentrant returns (uint256 assets) {
         _beforeRedeem(shares, owner);
-        assets = IERC4626(ibt).redeem(_convertSharesToIBTs(shares, false), receiver, address(this));
         emit Redeem(owner, receiver, shares);
+        assets = IERC4626(ibt).redeem(_convertSharesToIBTs(shares, false), receiver, address(this));
     }
 
     /** @dev See {IPrincipalToken-redeem}. */
@@ -254,11 +289,13 @@ contract PrincipalToken is
         uint256 shares,
         address receiver,
         address owner
-    ) public override returns (uint256 ibts) {
+    ) public override nonReentrant returns (uint256 ibts) {
         _beforeRedeem(shares, owner);
         ibts = _convertSharesToIBTs(shares, false);
-        IERC20(ibt).safeTransfer(receiver, ibts);
         emit Redeem(owner, receiver, shares);
+        if (ibts != 0) {
+            IERC20(ibt).safeTransfer(receiver, ibts);
+        }
     }
 
     /** @dev See {IPrincipalToken-redeemForIBT}. */
@@ -279,11 +316,11 @@ contract PrincipalToken is
         uint256 assets,
         address receiver,
         address owner
-    ) public override returns (uint256 shares) {
+    ) public override nonReentrant returns (uint256 shares) {
         _beforeWithdraw(assets, owner);
         (uint256 _ptRate, uint256 _ibtRate) = _getPTandIBTRates(false);
         uint256 ibts = IERC4626(ibt).withdraw(assets, receiver, address(this));
-        shares = _withdrawShares(ibts, receiver, owner, _ptRate, _ibtRate);
+        shares = _burnSharesForWithdraw(ibts, receiver, owner, _ptRate, _ibtRate);
     }
 
     /** @dev See {IPrincipalToken-withdraw}. */
@@ -304,12 +341,13 @@ contract PrincipalToken is
         uint256 ibts,
         address receiver,
         address owner
-    ) public override returns (uint256 shares) {
-        _beforeWithdraw(IERC4626(ibt).previewRedeem(ibts), owner);
+    ) public override nonReentrant returns (uint256 shares) {
+        address _ibt = ibt;
+        _beforeWithdraw(IERC4626(_ibt).previewRedeem(ibts), owner);
         (uint256 _ptRate, uint256 _ibtRate) = _getPTandIBTRates(false);
-        shares = _withdrawShares(ibts, receiver, owner, _ptRate, _ibtRate);
+        shares = _burnSharesForWithdraw(ibts, receiver, owner, _ptRate, _ibtRate);
         // send IBTs from this contract to receiver
-        IERC20(ibt).safeTransfer(receiver, ibts);
+        IERC20(_ibt).safeTransfer(receiver, ibts);
     }
 
     /** @dev See {IPrincipalToken-withdrawIBT}. */
@@ -326,18 +364,25 @@ contract PrincipalToken is
     }
 
     /** @dev See {IPrincipalToken-claimFees}. */
-    function claimFees() external override returns (uint256 assets) {
+    function claimFees(
+        uint256 _minAssets
+    ) external override whenNotPaused returns (uint256 assets) {
         if (msg.sender != IRegistry(registry).getFeeCollector()) {
             revert UnauthorizedCaller();
         }
         uint256 ibts = unclaimedFeesInIBT;
         unclaimedFeesInIBT = 0;
-        assets = IERC4626(ibt).redeem(ibts, msg.sender, address(this));
         emit FeeClaimed(msg.sender, ibts, assets);
+        assets = IERC4626(ibt).redeem(ibts, msg.sender, address(this));
+        if (_minAssets > assets) {
+            revert ERC5143SlippageProtectionFailed();
+        }
     }
 
     /** @dev See {IPrincipalToken-updateYield}. */
-    function updateYield(address _user) public override returns (uint256 updatedUserYieldInIBT) {
+    function updateYield(
+        address _user
+    ) public override whenNotPaused returns (uint256 updatedUserYieldInIBT) {
         (uint256 _ptRate, uint256 _ibtRate) = _updatePTandIBTRates();
 
         uint256 _oldIBTRateUser = ibtRateOfUser[_user];
@@ -351,8 +396,7 @@ contract PrincipalToken is
 
         // Check for skipping yield update when the user deposits for the first time or rates decreased to 0.
         if (_oldIBTRateUser != 0) {
-            updatedUserYieldInIBT = PrincipalTokenUtil._computeYield(
-                _user,
+            updatedUserYieldInIBT = _user.computeYield(
                 yieldOfUserInIBT[_user],
                 _oldIBTRateUser,
                 _ibtRate,
@@ -366,16 +410,30 @@ contract PrincipalToken is
     }
 
     /** @dev See {IPrincipalToken-claimYield}. */
-    function claimYield(address _receiver) public override returns (uint256 yieldInAsset) {
+    function claimYield(
+        address _receiver,
+        uint256 _minAssets
+    ) public override returns (uint256 yieldInAsset) {
         uint256 yieldInIBT = _claimYield();
+        emit YieldClaimed(msg.sender, _receiver, yieldInIBT);
         if (yieldInIBT != 0) {
             yieldInAsset = IERC4626(ibt).redeem(yieldInIBT, _receiver, address(this));
+        }
+        if (_minAssets > yieldInAsset) {
+            revert ERC5143SlippageProtectionFailed();
         }
     }
 
     /** @dev See {IPrincipalToken-claimYieldInIBT}. */
-    function claimYieldInIBT(address _receiver) public override returns (uint256 yieldInIBT) {
+    function claimYieldInIBT(
+        address _receiver,
+        uint256 _minIBT
+    ) public override returns (uint256 yieldInIBT) {
         yieldInIBT = _claimYield();
+        if (_minIBT > yieldInIBT) {
+            revert ERC5143SlippageProtectionFailed();
+        }
+        emit YieldClaimed(msg.sender, _receiver, yieldInIBT);
         if (yieldInIBT != 0) {
             IERC20(ibt).safeTransfer(_receiver, yieldInIBT);
         }
@@ -391,29 +449,58 @@ contract PrincipalToken is
     }
 
     /** @dev See {IPrincipalToken-claimRewards}. */
-    function claimRewards(bytes memory _data) external restricted {
-        if (rewardsProxy == address(0)) {
-            revert NoRewardsProxySet();
+    function claimRewards(bytes memory _data) external restricted whenNotPaused {
+        address _rewardsProxy = rewardsProxy;
+        if (_rewardsProxy == address(0) || _rewardsProxy.code.length == 0) {
+            revert NoRewardsProxy();
         }
-        _data = abi.encodeWithSelector(IRewardsProxy(rewardsProxy).claimRewards.selector, _data);
-        (bool success, ) = rewardsProxy.delegatecall(_data);
+        bytes memory _data2 = abi.encodeCall(IRewardsProxy(address(0)).claimRewards, (_data));
+        (bool success, ) = _rewardsProxy.delegatecall(_data2);
         if (!success) {
             revert ClaimRewardsFailed();
         }
+    }
+
+    /** @dev See {IERC3156FlashLender-flashLoan}. */
+    function flashLoan(
+        IERC3156FlashBorrower _receiver,
+        address _token,
+        uint256 _amount,
+        bytes calldata _data
+    ) external override whenNotPaused returns (bool) {
+        if (_amount > maxFlashLoan(_token)) revert FlashLoanExceedsMaxAmount();
+
+        uint256 fee = flashFee(_token, _amount);
+        _updateFees(fee);
+
+        // Initiate the flash loan by lending the requested IBT amount
+        address _ibt = ibt;
+        IERC20(_ibt).safeTransfer(address(_receiver), _amount);
+
+        // Execute the flash loan
+        if (_receiver.onFlashLoan(msg.sender, _token, _amount, fee, _data) != ON_FLASH_LOAN)
+            revert FlashLoanCallbackFailed();
+
+        // Repay the debt + fee
+        IERC20(_ibt).safeTransferFrom(address(_receiver), address(this), _amount + fee);
+
+        return true;
     }
 
     /* SETTERS
      *****************************************************************************************************************/
 
     /** @dev See {IPrincipalToken-storeRatesAtExpiry}. */
-    function storeRatesAtExpiry() public override afterExpiry {
-        if (ratesAtExpiryStored) {
+    function storeRatesAtExpiry() public override afterExpiry whenNotPaused {
+        if (ratesAtExpiryStored == RAE_STORED) {
             revert RatesAtExpiryAlreadyStored();
         }
-        ratesAtExpiryStored = true;
+        ratesAtExpiryStored = RAE_STORED;
         // PT rate not rounded up here
-        (ptRate, ibtRate) = _getCurrentPTandIBTRates(false);
-        emit RatesStoredAtExpiry(ibtRate, ptRate);
+        (uint256 _ptRate, uint256 _ibtRate) = _getCurrentPTandIBTRates(false);
+        ptRate = _ptRate;
+        ibtRate = _ibtRate;
+        emit RatesStoredAtExpiry(_ibtRate, _ptRate);
     }
 
     /** @dev See {IPrincipalToken-setRewardsProxy}. */
@@ -427,25 +514,26 @@ contract PrincipalToken is
      *****************************************************************************************************************/
 
     /** @dev See {IPrincipalToken-previewDeposit}. */
-    function previewDeposit(uint256 assets) public view override returns (uint256) {
+    function previewDeposit(uint256 assets) external view override returns (uint256) {
         uint256 ibts = IERC4626(ibt).previewDeposit(assets);
-        return _previewDepositIBT(ibts);
+        return previewDepositIBT(ibts);
     }
 
     /** @dev See {IPrincipalToken-previewDepositIBT}. */
-    function previewDepositIBT(uint256 ibts) external view override returns (uint256) {
-        return _previewDepositIBT(ibts);
+    function previewDepositIBT(
+        uint256 ibts
+    ) public view override notExpired whenNotPaused returns (uint256) {
+        uint256 tokenizationFee = ibts._computeTokenizationFee(address(this), registry);
+        return _convertIBTsToSharesPreview(ibts - tokenizationFee);
     }
 
     /** @dev See {IPrincipalToken-maxDeposit}. */
-    function maxDeposit(address) external pure override returns (uint256) {
-        return type(uint256).max;
+    function maxDeposit(address /* receiver */) external view override returns (uint256) {
+        return paused() || (block.timestamp >= expiry) ? 0 : type(uint256).max;
     }
 
     /** @dev See {IPrincipalToken-previewWithdraw}. */
-    function previewWithdraw(
-        uint256 assets
-    ) external view override whenNotPaused returns (uint256) {
+    function previewWithdraw(uint256 assets) external view override returns (uint256) {
         uint256 ibts = IERC4626(ibt).previewWithdraw(assets);
         return previewWithdrawIBT(ibts);
     }
@@ -457,18 +545,18 @@ contract PrincipalToken is
 
     /** @dev See {IPrincipalToken-maxWithdraw}.
      */
-    function maxWithdraw(address owner) public view override whenNotPaused returns (uint256) {
-        return convertToUnderlying(_maxBurnable(owner));
+    function maxWithdraw(address owner) public view override returns (uint256) {
+        return paused() ? 0 : convertToUnderlying(_maxBurnable(owner));
     }
 
     /** @dev See {IPrincipalToken-maxWithdrawIBT}.
      */
-    function maxWithdrawIBT(address owner) public view override whenNotPaused returns (uint256) {
-        return _convertSharesToIBTs(_maxBurnable(owner), false);
+    function maxWithdrawIBT(address owner) public view override returns (uint256) {
+        return paused() ? 0 : _convertSharesToIBTs(_maxBurnable(owner), false);
     }
 
     /** @dev See {IPrincipalToken-previewRedeem}. */
-    function previewRedeem(uint256 shares) public view override returns (uint256) {
+    function previewRedeem(uint256 shares) external view override returns (uint256) {
         return IERC4626(ibt).previewRedeem(previewRedeemForIBT(shares));
     }
 
@@ -481,7 +569,7 @@ contract PrincipalToken is
 
     /** @dev See {IPrincipalToken-maxRedeem}. */
     function maxRedeem(address owner) public view override returns (uint256) {
-        return _maxBurnable(owner);
+        return paused() ? 0 : _maxBurnable(owner);
     }
 
     /** @dev See {IPrincipalToken-convertToPrincipal}. */
@@ -496,17 +584,18 @@ contract PrincipalToken is
 
     /** @dev See {IPrincipalToken-totalAssets}. */
     function totalAssets() public view override returns (uint256) {
-        return IERC4626(ibt).previewRedeem(IERC4626(ibt).balanceOf(address(this)));
+        address _ibt = ibt;
+        return IERC4626(_ibt).previewRedeem(IERC4626(_ibt).balanceOf(address(this)));
     }
 
     /** @dev See {IERC20Metadata-decimals} */
     function decimals() public view override(IERC20Metadata, ERC20Upgradeable) returns (uint8) {
-        return IERC4626(ibt).decimals();
+        return ibtDecimals;
     }
 
-    /** @dev See {IPrincipalToken-underlying}. */
-    function underlying() external view override returns (address) {
-        return _asset;
+    /** @dev See {IPrincipalToken-paused}. */
+    function paused() public view override(IPrincipalToken, PausableUpgradeable) returns (bool) {
+        return super.paused();
     }
 
     /** @dev See {IPrincipalToken-maturity}. */
@@ -517,6 +606,11 @@ contract PrincipalToken is
     /** @dev See {IPrincipalToken-getDuration}. */
     function getDuration() external view override returns (uint256) {
         return duration;
+    }
+
+    /** @dev See {IPrincipalToken-underlying}. */
+    function underlying() external view override returns (address) {
+        return underlying_;
     }
 
     /** @dev See {IPrincipalToken-getIBT}. */
@@ -560,12 +654,11 @@ contract PrincipalToken is
     function getCurrentYieldOfUserInIBT(
         address _user
     ) external view override returns (uint256 _yieldOfUserInIBT) {
-        (uint256 _ptRate, uint256 _ibtRate) = _getPTandIBTRates(false);
         uint256 _oldIBTRate = ibtRateOfUser[_user];
-        uint256 _oldPTRate = ptRateOfUser[_user];
         if (_oldIBTRate != 0) {
-            _yieldOfUserInIBT = PrincipalTokenUtil._computeYield(
-                _user,
+            (uint256 _ptRate, uint256 _ibtRate) = _getPTandIBTRates(false);
+            uint256 _oldPTRate = ptRateOfUser[_user];
+            _yieldOfUserInIBT = _user.computeYield(
                 yieldOfUserInIBT[_user],
                 _oldIBTRate,
                 _ibtRate,
@@ -573,81 +666,44 @@ contract PrincipalToken is
                 _ptRate,
                 yt
             );
-            _yieldOfUserInIBT -= PrincipalTokenUtil._computeYieldFee(_yieldOfUserInIBT, registry);
+            _yieldOfUserInIBT = _yieldOfUserInIBT - _yieldOfUserInIBT._computeYieldFee(registry);
         }
     }
 
-    /**
-     * @dev See {IERC3156FlashLender-maxFlashLoan}.
-     */
+    /** @dev See {IERC3156FlashLender-maxFlashLoan}. */
     function maxFlashLoan(address _token) public view override returns (uint256) {
-        if (_token != ibt) {
+        address _ibt = ibt;
+        if (_token != _ibt) {
             return 0;
         }
         // Entire IBT balance of the contract can be borrowed
-        return IERC4626(ibt).balanceOf(address(this));
+        return IERC4626(_ibt).balanceOf(address(this));
     }
 
-    /**
-     * @dev See {IERC3156FlashLender-flashFee}.
-     */
+    /** @dev See {IERC3156FlashLender-flashFee}. */
     function flashFee(address _token, uint256 _amount) public view override returns (uint256) {
         if (_token != ibt) revert AddressError();
-        return PrincipalTokenUtil._computeFlashloanFee(_amount, registry);
+        return _amount._computeFlashloanFee(registry);
     }
 
-    /**
-     * @dev See {IPrincipalToken-tokenizationFee}.
-     */
+    /** @dev See {IPrincipalToken-tokenizationFee}. */
     function getTokenizationFee() public view override returns (uint256) {
         return IRegistry(registry).getTokenizationFee();
-    }
-
-    /**
-     * @dev See {IERC3156FlashLender-flashLoan}.
-     */
-    function flashLoan(
-        IERC3156FlashBorrower _receiver,
-        address _token,
-        uint256 _amount,
-        bytes calldata _data
-    ) external override returns (bool) {
-        if (_amount > maxFlashLoan(_token)) revert FlashLoanExceedsMaxAmount();
-
-        uint256 fee = flashFee(_token, _amount);
-        _updateFees(fee);
-
-        // Initiate the flash loan by lending the requested IBT amount
-        IERC20(ibt).safeTransfer(address(_receiver), _amount);
-
-        // Execute the flash loan
-        if (_receiver.onFlashLoan(msg.sender, _token, _amount, fee, _data) != ON_FLASH_LOAN)
-            revert FlashLoanCallbackFailed();
-
-        // Repay the debt + fee
-        IERC20(ibt).safeTransferFrom(address(_receiver), address(this), _amount + fee);
-
-        return true;
     }
 
     /* INTERNAL FUNCTIONS
      *****************************************************************************************************************/
 
     /**
-     * @dev Preview the amount of shares that would be minted for a given amount (ibts) of IBT. This method is used both to preview a deposit with assets and a deposit with IBTs.
-     * @param _ibts The amount of IBT to deposit
-     * @return The amount of shares that would be minted
+     * @dev See {ERC20Upgradeable-_update}.
+     * @dev The contract must not be paused.
      */
-    function _previewDepositIBT(
-        uint256 _ibts
-    ) internal view notExpired whenNotPaused returns (uint256) {
-        uint256 tokenizationFee = PrincipalTokenUtil._computeTokenizationFee(
-            _ibts,
-            address(this),
-            registry
-        );
-
-        return _convertIBTsToSharesPreview(_ibts - tokenizationFee);
+    function _update(
+        address from,
+        address to,
+        uint256 value
+    ) internal virtual override whenNotPaused {
+        super._update(from, to, value);
     }
 
     /**
@@ -699,7 +755,8 @@ contract PrincipalToken is
      * @return shares resulting amount of shares
      */
     function _convertIBTsToSharesPreview(uint256 ibts) internal view returns (uint256 shares) {
-        (uint256 _ptRate, uint256 _ibtRate) = _getPTandIBTRates(true); // to round up the shares, the PT rate must round down
+        // to round up the shares, the PT rate must round down
+        (uint256 _ptRate, uint256 _ibtRate) = _getPTandIBTRates(true);
         if (_ptRate == 0) {
             revert RateError();
         }
@@ -711,8 +768,8 @@ contract PrincipalToken is
      * @param _feesInIBT The fees in IBT currently being paid
      */
     function _updateFees(uint256 _feesInIBT) internal {
-        unclaimedFeesInIBT += _feesInIBT;
-        totalFeesInIBT += _feesInIBT;
+        unclaimedFeesInIBT = unclaimedFeesInIBT + _feesInIBT;
+        totalFeesInIBT = totalFeesInIBT + _feesInIBT;
     }
 
     /**
@@ -729,12 +786,7 @@ contract PrincipalToken is
         _yt = address(
             new BeaconProxy(
                 ytBeacon,
-                abi.encodeWithSelector(
-                    IYieldToken(address(0)).initialize.selector,
-                    _name,
-                    _symbol,
-                    address(this)
-                )
+                abi.encodeCall(IYieldToken(address(0)).initialize, (_name, _symbol, address(this)))
             )
         );
         emit YTDeployed(_yt);
@@ -751,13 +803,9 @@ contract PrincipalToken is
         uint256 _ibts,
         address _ptReceiver,
         address _ytReceiver
-    ) internal notExpired nonReentrant whenNotPaused returns (uint256 shares) {
+    ) internal notExpired returns (uint256 shares) {
         updateYield(_ytReceiver);
-        uint256 tokenizationFee = PrincipalTokenUtil._computeTokenizationFee(
-            _ibts,
-            address(this),
-            registry
-        );
+        uint256 tokenizationFee = _ibts._computeTokenizationFee(address(this), registry);
         _updateFees(tokenizationFee);
         shares = _convertIBTsToShares(_ibts - tokenizationFee, false);
         if (shares == 0) {
@@ -769,15 +817,56 @@ contract PrincipalToken is
     }
 
     /**
-     * @dev Internal function for burning PT and YT. Also updates yield before burning
+     * @dev Internal function for preparing redeem and burning PT:YT shares.
+     * @param _shares The amount of shares being redeemed
+     * @param _owner The address of shares' owner
+     */
+    function _beforeRedeem(uint256 _shares, address _owner) internal {
+        if (_owner != msg.sender) {
+            _spendAllowance(_owner, msg.sender, _shares);
+        }
+        if (_shares > _maxBurnable(_owner)) {
+            revert InsufficientBalance();
+        }
+        if (block.timestamp >= expiry) {
+            if (ratesAtExpiryStored == RAE_NOT_STORED) {
+                storeRatesAtExpiry();
+            }
+        } else {
+            updateYield(_owner);
+            IYieldToken(yt).burnWithoutYieldUpdate(_owner, msg.sender, _shares);
+        }
+        _burn(_owner, _shares);
+    }
+
+    /**
+     * @dev Internal function for preparing withdraw.
+     * @param _assets The amount of assets to withdraw
+     * @param _owner The address of shares' owner
+     */
+    function _beforeWithdraw(uint256 _assets, address _owner) internal {
+        if (block.timestamp >= expiry) {
+            if (ratesAtExpiryStored == RAE_NOT_STORED) {
+                storeRatesAtExpiry();
+            }
+        } else {
+            updateYield(_owner);
+        }
+        if (_assets > maxWithdraw(_owner)) {
+            revert InsufficientBalance();
+        }
+    }
+
+    /**
+     * @dev Internal function for burning PT and YT as part of withdrawal process.
      * @param _ibts The amount of IBT that are withdrawn for burning shares
      * @param _receiver The addresss of the receiver of the assets
      * @param _owner The address of the owner of the shares
      * @param _ptRate The PT rate (expressed in Ray) to be used
      * @param _ibtRate The IBT rate (expressed in Ray) to be used
-     * @return shares The amount of owner's shares being burned
+     * @return shares The amount of burnt owner's shares
      */
-    function _withdrawShares(
+    function _burnSharesForWithdraw(
         uint256 _ibts,
         address _receiver,
         address _owner,
@@ -789,56 +878,15 @@ contract PrincipalToken is
         }
         // convert ibts to shares using provided rates
         shares = _ibts.mulDiv(_ibtRate, _ptRate, Math.Rounding.Ceil);
+        if (_owner != msg.sender) {
+            _spendAllowance(_owner, msg.sender, shares);
+        }
         // burn owner's shares (YT and PT)
         if (block.timestamp < expiry) {
-            IYieldToken(yt).burnWithoutUpdate(_owner, shares);
+            IYieldToken(yt).burnWithoutYieldUpdate(_owner, msg.sender, shares);
         }
         _burn(_owner, shares);
         emit Redeem(_owner, _receiver, shares);
-    }
-
-    /**
-     * @dev Internal function for preparing redeems
-     * @param _shares The amount of shares being redeemed
-     * @param _owner The address of shares' owner
-     */
-    function _beforeRedeem(uint256 _shares, address _owner) internal nonReentrant whenNotPaused {
-        if (_owner != msg.sender) {
-            revert UnauthorizedCaller();
-        }
-        if (_shares > _maxBurnable(_owner)) {
-            revert UnsufficientBalance();
-        }
-        if (block.timestamp >= expiry) {
-            if (!ratesAtExpiryStored) {
-                storeRatesAtExpiry();
-            }
-        } else {
-            updateYield(_owner);
-            IYieldToken(yt).burnWithoutUpdate(_owner, _shares);
-        }
-        _burn(_owner, _shares);
-    }
-
-    /**
-     * @dev Internal function for preparing withdraw
-     * @param _assets The amount of assets to withdraw
-     * @param _owner The address of shares' owner
-     */
-    function _beforeWithdraw(uint256 _assets, address _owner) internal whenNotPaused nonReentrant {
-        if (_owner != msg.sender) {
-            revert UnauthorizedCaller();
-        }
-        if (block.timestamp >= expiry) {
-            if (!ratesAtExpiryStored) {
-                storeRatesAtExpiry();
-            }
-        } else {
-            updateYield(_owner);
-        }
-        if (maxWithdraw(_owner) < _assets) {
-            revert UnsufficientBalance();
-        }
     }
 
     /**
@@ -851,15 +899,14 @@ contract PrincipalToken is
             return 0;
         } else {
             yieldOfUserInIBT[msg.sender] = 0;
-            uint256 yieldFeeInIBT = PrincipalTokenUtil._computeYieldFee(yieldInIBT, registry);
+            uint256 yieldFeeInIBT = yieldInIBT._computeYieldFee(registry);
             _updateFees(yieldFeeInIBT);
-            yieldInIBT -= yieldFeeInIBT;
-            emit YieldClaimed(msg.sender, msg.sender, yieldInIBT);
+            yieldInIBT = yieldInIBT - yieldFeeInIBT;
         }
     }
 
     /**
-     * @notice Computes the maximum amount of burnable shares for a user
+     * @dev Computes the maximum amount of burnable shares for a user
      * @param _user The address of the user
      * @return maxBurnable The maximum amount of burnable shares
      */
@@ -875,15 +922,18 @@ contract PrincipalToken is
 
     /**
      * @dev Internal function for updating PT and IBT rates i.e. depegging PT if negative yield happened
+     * @return _ptRate The new PT rate
+     * @return _ibtRate The new IBT rate
      */
     function _updatePTandIBTRates() internal returns (uint256 _ptRate, uint256 _ibtRate) {
-        if (block.timestamp >= expiry) {
-            if (!ratesAtExpiryStored) {
+        uint256 _expiry = expiry;
+        if (block.timestamp >= _expiry) {
+            if (ratesAtExpiryStored == RAE_NOT_STORED) {
                 storeRatesAtExpiry();
             }
         }
         (_ptRate, _ibtRate) = _getPTandIBTRates(false);
-        if (block.timestamp < expiry) {
+        if (block.timestamp < _expiry) {
             if (_ibtRate != ibtRate) {
                 ibtRate = _ibtRate;
             }
@@ -895,34 +945,42 @@ contract PrincipalToken is
 
     /**
      * @dev View function to get current IBT and PT rate
-     * @param roundUpPTRate true if the ptRate resulting from mulDiv computation in case of negative rate should be rounded up
-     * @return new pt and ibt rates
+     * @param roundUpPTRate true if the ptRate resulting from mulDiv computation in case of negative rate should
+     * be rounded up
+     * @return _ptRate The new PT rate
+     * @return _ibtRate The new IBT rate
      */
-    function _getCurrentPTandIBTRates(bool roundUpPTRate) internal view returns (uint256, uint256) {
-        uint256 currentIBTRate = IERC4626(ibt).previewRedeem(ibtUnit).toRay(_assetDecimals);
-        if (IERC4626(ibt).totalAssets() == 0 && IERC4626(ibt).totalSupply() != 0) {
-            currentIBTRate = 0;
+    function _getCurrentPTandIBTRates(
+        bool roundUpPTRate
+    ) internal view returns (uint256 _ptRate, uint256 _ibtRate) {
+        address _ibt = ibt;
+        _ibtRate = IERC4626(_ibt).previewRedeem(ibtUnit).toRay(underlyingDecimals);
+        if (IERC4626(_ibt).totalAssets() == 0 && IERC4626(_ibt).totalSupply() != 0) {
+            _ibtRate = 0;
         }
-        uint256 currentPTRate = currentIBTRate < ibtRate
+        _ptRate = _ibtRate < ibtRate
             ? ptRate.mulDiv(
-                currentIBTRate,
+                _ibtRate,
                 ibtRate,
                 roundUpPTRate ? Math.Rounding.Ceil : Math.Rounding.Floor
             )
             : ptRate;
-        return (currentPTRate, currentIBTRate);
     }
 
     /**
      * @dev View function to get IBT and PT rates
-     * @param roundUpPTRate true if the PTRate result from mulDiv computation in case of negative rate should be rounded up
-     * @return PT and IBT rates
+     * @param roundUpPTRate true if the PTRate result from mulDiv computation in case of negative rate should
+     * be rounded up
+     * @return _ptRate The new PT rate
+     * @return _ibtRate The new IBT rate
      */
-    function _getPTandIBTRates(bool roundUpPTRate) internal view returns (uint256, uint256) {
-        if (ratesAtExpiryStored) {
-            return (ptRate, ibtRate);
+    function _getPTandIBTRates(
+        bool roundUpPTRate
+    ) internal view returns (uint256 _ptRate, uint256 _ibtRate) {
+        if (ratesAtExpiryStored == RAE_NOT_STORED) {
+            (_ptRate, _ibtRate) = _getCurrentPTandIBTRates(roundUpPTRate);
         } else {
-            return _getCurrentPTandIBTRates(roundUpPTRate);
+            (_ptRate, _ibtRate) = (ptRate, ibtRate);
         }
     }
 }

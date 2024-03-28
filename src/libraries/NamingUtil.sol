@@ -2,6 +2,11 @@
 
 pragma solidity 0.8.20;
 
+/**
+ * @title NamingUtil library
+ * @author Spectra Finance
+ * @notice Provides miscellaneous utils for token naming.
+ */
 library NamingUtil {
     function genYTSymbol(
         string memory _ibtSymbol,
