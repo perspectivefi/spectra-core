@@ -1,0 +1,66 @@
+Arch:
+   1. Pool SNG
+   2. Exchange rate IBT/UND
+   3. Exchange rate PT/UND
+
+Pool stores IBT/PT
+
+IBT: convertToAssets
+PT: value() 
+
+Pricing:
+
+1. rate: converstion rate between the two tokens to common underlying token
+2. AMM: volatility around this conversion. last_prices in [0.99, 1.01]
+
+
+Exchange flow:
+
+init time = 0
+current time = 0
+expiry = 1y
+apy = 100%
+ibt rate = 1
+last price = 1
+
+pt value und = 0.5
+ibt value und = 1 
+
+1 IBT => pool internally converts 1 IBT to UND => 1 Virtual IBT => (Pricing of amm happens here) 1 Virtual PT => convert to actual PT => 1/0.5 = 2 PT
+
+ptpriceinibt = ibt_oracle_value * (last_price + impact and fees) / pt_oracle_value
+
+init time = 0
+current time = 6m
+expiry = 1y
+apy = 100%
+ibt rate = 1.5
+last price = 1
+
+pt value und = 0.7
+ibt value und = 1 
+
+1 IBT => pool internally converts 1 IBT to UND => 1.5 Virtual IBT => (Pricing of amm happens here) 1.5 Virtual PT => convert to actual PT => 1.5/0.7 = 2.14 PT
+
+ptpriceinibt = ibt_oracle_value * (last_price + impact and fees) / pt_oracle_value
+
+
+Properties:
+
+1. If not trade occurs, implied apy calculated from pool + oracle state stays constant in time
+2. AMM pricing serves only IR volatility, time value of assets taken care of by oracles
+3. Cannot be too wrong on initial guess, else change initial belief
+4. If initial price changed in oracle, permanent loss happens
+5. Dangerous to change drastically, sandwich possible
+
+
+What did not change:
+
+1. Reconcentration of liquidity has to be done manually (vote)
+2. Reconcentration of fees has to be done manually (vote)
+
+
+TODO:
+investigate if change of params is static
+
+

@@ -1,0 +1,35 @@
+{
+  "name": "apwine-corev2",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "license": "BUSL-1.1",
+  "files": [
+    "src/**/*.sol"
+  ],
+  "devDependencies": {
+    "prettier": "^2.7.1",
+    "prettier-plugin-solidity": "^1.0.0-beta.19"
+  },
+  "scripts": {
+    "format": "prettier --write \"**/*.{ts,js,sol}\"",
+    "lint": "prettier --list-different \"**/*.{ts,js,sol}\"",
+    "gas-report": "forge test --gas-report",
+    "deploy-access-manager": "forge script script/00_deployAccessManager.s.sol --rpc-url $RPC_URL --private-key $ACCOUNT_PRIVATE_KEY --broadcast --verify -vvvv",
+    "deploy-registry": "forge script script/01_deployRegistry.s.sol --rpc-url $RPC_URL --private-key $ACCOUNT_PRIVATE_KEY --broadcast --verify -vvvv",
+    "deploy-pt-instance": "forge script script/02_deployPrincipalTokenInstance.s.sol --rpc-url $RPC_URL --private-key $ACCOUNT_PRIVATE_KEY --broadcast --verify -vvvv",
+    "deploy-yt-instance": "forge script script/03_deployYTInstance.s.sol --rpc-url $RPC_URL --private-key $ACCOUNT_PRIVATE_KEY --broadcast --verify -vvvv",
+    "deploy-pt-beacon": "forge script script/04_deployPrincipalTokenBeacon.s.sol --rpc-url $RPC_URL --private-key $ACCOUNT_PRIVATE_KEY --broadcast --verify -vvvv",
+    "deploy-yt-beacon": "forge script script/05_deployYTBeacon.s.sol --rpc-url $RPC_URL --private-key $ACCOUNT_PRIVATE_KEY --broadcast --verify -vvvv",
+    "deploy-factory": "forge script script/06_deployFactory.s.sol --rpc-url $RPC_URL --private-key $ACCOUNT_PRIVATE_KEY --broadcast --verify -vvvv",
+    "deploy-pt": "forge script script/07_deployPrincipalToken.s.sol --rpc-url $RPC_URL --private-key $ACCOUNT_PRIVATE_KEY --broadcast --verify -vvvv",
+    "deploy-curve-pool": "forge script script/08_deployCurvePool.s.sol --rpc-url $RPC_URL --private-key $ACCOUNT_PRIVATE_KEY --broadcast --verify -vvvv",
+    "deploy-router": "forge script script/09_deployRouter.s.sol --rpc-url $RPC_URL --private-key $ACCOUNT_PRIVATE_KEY --broadcast --verify -vvvv",
+    "deploy-all": "forge script script/10_deployAll.s.sol --rpc-url $RPC_URL --private-key $ACCOUNT_PRIVATE_KEY --broadcast --verify -vvvv",
+    "deploy-protocol": "forge script script/18_deployProtocol.s.sol --rpc-url $RPC_URL --private-key $ACCOUNT_PRIVATE_KEY --broadcast --verify -vvvv",
+    "deploy-instances": "forge script script/19_deployInstances.s.sol --rpc-url $RPC_URL --private-key $ACCOUNT_PRIVATE_KEY --broadcast --verify -vvvv"
+  },
+  "dependencies": {
+    "dotenv": "^8.2.0"
+  }
+}

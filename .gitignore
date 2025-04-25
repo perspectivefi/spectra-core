@@ -1,0 +1,29 @@
+# Compiler files
+cache/
+out/
+
+# Vscode config
+.vscode/
+
+# Ignore development broadcast logs
+!/broadcast
+/broadcast/*
+/broadcast/*/31337/
+
+# Ignore .env file
+.env
+.json*
+
+# Ignore the node_modules directory
+!/node_modules
+node_modules/*
+
+package-lock.json
+
+# Ignore coverage related files
+!/report
+/report/*
+lcov.info
+
+# System files
+.DS_Store

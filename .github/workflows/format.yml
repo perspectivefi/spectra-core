@@ -1,0 +1,15 @@
+name: PR Format
+on: [pull_request]
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+      - name: Install modules
+        run: yarn
+      - name: Run prettier check
+        run: yarn run prettier "./**/*.{ts,js,sol}" --check

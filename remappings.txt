@@ -1,0 +1,11 @@
+ds-test/=lib/forge-std/lib/ds-test/src/
+erc4626-tests/=lib/openzeppelin-contracts/lib/erc4626-tests/
+forge-std/=lib/forge-std/src/
+openzeppelin-contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/
+openzeppelin-contracts/=lib/openzeppelin-contracts/contracts/
+openzeppelin-erc20-basic/=lib/openzeppelin-contracts/contracts/token/ERC20/
+openzeppelin-erc20-extensions/=lib/openzeppelin-contracts-upgradeable/contracts/token/ERC20/extensions/
+openzeppelin-erc20/=lib/openzeppelin-contracts-upgradeable/contracts/token/ERC20/
+openzeppelin-math/=lib/openzeppelin-contracts/contracts/utils/math/
+openzeppelin-proxy/=lib/openzeppelin-contracts-upgradeable/contracts/proxy/utils/
+openzeppelin-utils/=lib/openzeppelin-contracts/contracts/utils/
